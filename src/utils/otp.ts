@@ -2,7 +2,7 @@
  * OTP generation utilities
  */
 
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 
 const OTP_LENGTH = 6;
 const OTP_EXPIRY_MINUTES = 10;

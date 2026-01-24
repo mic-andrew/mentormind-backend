@@ -3,10 +3,10 @@
  */
 
 import type { Request, Response } from 'express';
-import { authService } from '../services/auth.service.js';
-import { sendSuccess, sendError, ErrorCodes } from '../utils/response.js';
-import type { AuthenticatedRequest } from '../middleware/auth.js';
-import { logger } from '../config/logger.js';
+import { authService } from '../services/auth.service';
+import { sendSuccess, sendError, ErrorCodes } from '../utils/response';
+import type { AuthenticatedRequest } from '../middleware/auth';
+import { logger } from '../config/logger';
 
 export class AuthController {
   /**
