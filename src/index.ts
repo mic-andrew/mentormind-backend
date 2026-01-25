@@ -1,57 +1,42 @@
 /**
- * MentorMind API Server
+ * MentorMind Backend API
+ * Main entry point
  */
 
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import { env } from './config/env.js';
-import { connectDatabase } from './config/database.js';
-import { apiRoutes } from './routes/index.js';
-import { logger } from './config/logger.js';
+import dotenv from 'dotenv';
+import { logger } from './config/logger';
+import { connectDatabase } from './config/database';
+import authRoutes from './routes/auth.routes';
+import socialAuthRoutes from './routes/socialAuth.routes';
+
+dotenv.config();
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Connect to MongoDB
+connectDatabase();
 
 // Middleware
 app.use(helmet());
-app.use(cors({
-  origin: env.frontendUrl,
-  credentials: true,
-}));
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Routes
-app.use('/api', apiRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/auth/social', socialAuthRoutes);
 
-// Error handling
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  logger.error('Unhandled error:', { error: err.message, stack: err.stack });
-  res.status(500).json({
-    success: false,
-    error: {
-      code: 'INTERNAL_ERROR',
-      message: env.isDev ? err.message : 'An unexpected error occurred',
-    },
-  });
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Connect to database and start server
-async function start() {
-  await connectDatabase();
-
-  app.listen(env.port, () => {
-    logger.info(`
-🚀 MentorMind API Server
-━━━━━━━━━━━━━━━━━━━━━━━
-📍 URL: http://localhost:${env.port}
-🌍 Environment: ${env.nodeEnv}
-━━━━━━━━━━━━━━━━━━━━━━━
-    `);
-  });
-}
-
-start().catch((error) => {
-  logger.error('Failed to start server:', error);
-  process.exit(1);
+// Start server
+app.listen(PORT, () => {
+  logger.info(`Server running on port ${PORT}`);
+  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });

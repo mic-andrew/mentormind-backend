@@ -1,55 +1,60 @@
 /**
- * API response utilities
+ * Response utility functions
+ * Provides consistent API response format
  */
 
 import type { Response } from 'express';
 
-export interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: {
+export enum ErrorCodes {
+  VALIDATION_ERROR = 'VALIDATION_ERROR',
+  UNAUTHORIZED = 'UNAUTHORIZED',
+  FORBIDDEN = 'FORBIDDEN',
+  NOT_FOUND = 'NOT_FOUND',
+  USER_EXISTS = 'USER_EXISTS',
+  INVALID_CREDENTIALS = 'INVALID_CREDENTIALS',
+  INVALID_TOKEN = 'INVALID_TOKEN',
+  INVALID_OTP = 'INVALID_OTP',
+  EMAIL_NOT_VERIFIED = 'EMAIL_NOT_VERIFIED',
+  INTERNAL_ERROR = 'INTERNAL_ERROR',
+}
+
+interface SuccessResponse<T> {
+  success: true;
+  data: T;
+}
+
+interface ErrorResponse {
+  success: false;
+  error: {
     code: string;
     message: string;
-    details?: Record<string, string[]>;
   };
 }
 
-export function sendSuccess<T>(res: Response, data: T, statusCode = 200): void {
-  res.status(statusCode).json({
+export function sendSuccess<T>(
+  res: Response,
+  data: T,
+  statusCode: number = 200
+): void {
+  const response: SuccessResponse<T> = {
     success: true,
     data,
-  } satisfies ApiResponse<T>);
+  };
+  res.status(statusCode).json(response);
 }
 
 export function sendError(
   res: Response,
-  code: string,
+  code: ErrorCodes,
   message: string,
-  statusCode = 400,
-  details?: Record<string, string[]>
+  statusCode: number = 400
 ): void {
-  res.status(statusCode).json({
+  const response: ErrorResponse = {
     success: false,
     error: {
       code,
       message,
-      ...(details && { details }),
     },
-  } satisfies ApiResponse<never>);
+  };
+  res.status(statusCode).json(response);
 }
-
-// Common error codes
-export const ErrorCodes = {
-  VALIDATION_ERROR: 'VALIDATION_ERROR',
-  UNAUTHORIZED: 'UNAUTHORIZED',
-  FORBIDDEN: 'FORBIDDEN',
-  NOT_FOUND: 'NOT_FOUND',
-  CONFLICT: 'CONFLICT',
-  INTERNAL_ERROR: 'INTERNAL_ERROR',
-  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
-  EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED',
-  INVALID_OTP: 'INVALID_OTP',
-  OTP_EXPIRED: 'OTP_EXPIRED',
-  USER_EXISTS: 'USER_EXISTS',
-  INVALID_TOKEN: 'INVALID_TOKEN',
-} as const;

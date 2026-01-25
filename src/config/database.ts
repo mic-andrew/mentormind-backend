@@ -1,21 +1,32 @@
+/**
+ * MongoDB Database Connection
+ */
+
 import mongoose from 'mongoose';
-import { env } from './env.js';
-import { logger } from './logger.js';
+import { logger } from './logger';
 
 export async function connectDatabase() {
   try {
-    await mongoose.connect(env.databaseUrl);
-    logger.info('✅ Connected to MongoDB');
+    const dbUrl = process.env.DATABASE_URL;
+
+    if (!dbUrl) {
+      throw new Error('DATABASE_URL not defined in environment variables');
+    }
+
+    await mongoose.connect(dbUrl);
+
+    logger.info('MongoDB connected successfully');
+
+    mongoose.connection.on('error', (error) => {
+      logger.error('MongoDB connection error:', error);
+    });
+
+    mongoose.connection.on('disconnected', () => {
+      logger.warn('MongoDB disconnected');
+    });
+
   } catch (error) {
-    logger.error('❌ MongoDB connection error:', error);
+    logger.error('Failed to connect to MongoDB:', error);
     process.exit(1);
   }
 }
-
-mongoose.connection.on('disconnected', () => {
-  logger.warn('⚠️  MongoDB disconnected');
-});
-
-mongoose.connection.on('error', (error) => {
-  logger.error('❌ MongoDB error:', error);
-});
