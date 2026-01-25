@@ -4,7 +4,7 @@
  */
 
 import * as bcrypt from 'bcryptjs';
-import * as jwt from 'jsonwebtoken';
+import jwt from 'jsonwebtoken';
 import * as crypto from 'crypto';
 import { User, IUser } from '../models/User';
 import { OTPCode } from '../models/OTPCode';
@@ -13,9 +13,9 @@ import { PasswordResetToken } from '../models/PasswordResetToken';
 import { generateOTP, getOTPExpiry } from '../utils/otp';
 import { logger } from '../config/logger';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
-const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
+const JWT_SECRET: string = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const JWT_EXPIRES_IN: string | number = process.env.JWT_EXPIRES_IN || '1h';
+const JWT_REFRESH_EXPIRES_IN: string | number = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 
 interface RegisterData {
   email: string;
@@ -44,7 +44,7 @@ class AuthService {
     const accessToken = jwt.sign(
       { userId, email },
       JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
+      { expiresIn: JWT_EXPIRES_IN } as jwt.SignOptions
     );
 
     const refreshTokenString = crypto.randomBytes(64).toString('hex');
