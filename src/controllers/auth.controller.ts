@@ -38,6 +38,10 @@ export class AuthController {
         sendError(res, ErrorCodes.INVALID_CREDENTIALS, 'Invalid email or password', 401);
         return;
       }
+      if (error instanceof Error && error.message === 'EMAIL_NOT_VERIFIED') {
+        sendError(res, ErrorCodes.EMAIL_NOT_VERIFIED, 'Please verify your email first', 403);
+        return;
+      }
       logger.error('Login error:', error);
       sendError(res, ErrorCodes.INTERNAL_ERROR, 'Login failed', 500);
     }
