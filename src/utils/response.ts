@@ -28,6 +28,7 @@ interface ErrorResponse {
   error: {
     code: string;
     message: string;
+    details?: Record<string, string[]>;
   };
 }
 
@@ -47,13 +48,15 @@ export function sendError(
   res: Response,
   code: ErrorCodes,
   message: string,
-  statusCode: number = 400
+  statusCode: number = 400,
+  details?: Record<string, string[]>
 ): void {
   const response: ErrorResponse = {
     success: false,
     error: {
       code,
       message,
+      ...(details && { details }),
     },
   };
   res.status(statusCode).json(response);

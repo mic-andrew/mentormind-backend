@@ -4,6 +4,13 @@
 
 import mongoose, { Schema, Document } from 'mongoose';
 
+export interface IUserContext {
+  primaryGoals?: string;
+  coreValues?: string;
+  keyChallenges?: string[];
+  updatedAt?: Date;
+}
+
 export interface IUser extends Document {
   email: string;
   firstName?: string;
@@ -14,6 +21,7 @@ export interface IUser extends Document {
   isOnboarded: boolean;
   googleId?: string;
   appleId?: string;
+  context?: IUserContext;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -58,6 +66,23 @@ const UserSchema = new Schema<IUser>(
       type: String,
       unique: true,
       sparse: true,
+    },
+    context: {
+      primaryGoals: {
+        type: String,
+        maxlength: 1000,
+      },
+      coreValues: {
+        type: String,
+        maxlength: 500,
+      },
+      keyChallenges: [{
+        type: String,
+        maxlength: 200,
+      }],
+      updatedAt: {
+        type: Date,
+      },
     },
   },
   {
