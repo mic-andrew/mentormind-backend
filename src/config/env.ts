@@ -24,10 +24,10 @@ export const env = {
 
   // Email
   smtp: {
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587', 10),
-    user: process.env.SMTP_USER || '',
-    pass: process.env.SMTP_PASS || '',
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
   },
   emailFrom: process.env.EMAIL_FROM || 'MentorMind <noreply@mentormind.app>',
 

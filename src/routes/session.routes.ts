@@ -5,6 +5,7 @@
 
 import { Router } from 'express';
 import { sessionController } from '../controllers/session.controller';
+import { evaluationController } from '../controllers/evaluation.controller';
 import { authenticate } from '../middleware/auth';
 
 const router = Router();
@@ -25,5 +26,10 @@ router.post('/:id/resume', authenticate, (req, res) => sessionController.resumeS
 router.put('/:id/transcript', authenticate, (req, res) => sessionController.saveTranscript(req, res));
 router.post('/:id/end', authenticate, (req, res) => sessionController.endSession(req, res));
 router.post('/:id/pause', authenticate, (req, res) => sessionController.pauseSession(req, res));
+
+// Evaluation routes (more specific path first)
+router.post('/:id/evaluation/retry', authenticate, (req, res) => evaluationController.retryEvaluation(req, res));
+router.post('/:id/evaluation', authenticate, (req, res) => evaluationController.generateEvaluation(req, res));
+router.get('/:id/evaluation', authenticate, (req, res) => evaluationController.getEvaluation(req, res));
 
 export default router;
