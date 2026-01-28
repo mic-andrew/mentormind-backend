@@ -14,6 +14,8 @@
  */
 
 import appleSignin from 'apple-signin-auth';
+import { User, IUser } from '../models/User';
+import { logger } from '../config/logger';
 
 interface AppleUserInfo {
   email: string;
@@ -35,56 +37,67 @@ export async function verifyAppleToken(identityToken: string): Promise<AppleUser
   try {
     // Verify the token with Apple's public keys
     const appleIdTokenPayload = await appleSignin.verifyIdToken(identityToken, {
-      // Optional: Verify the token was issued for your app
-      // audience: process.env.APPLE_CLIENT_ID, // Your app's bundle ID
-      nonce: undefined, // Optional: verify nonce if you use one
+      nonce: undefined,
       ignoreExpiration: false,
     });
 
-    // Validate required fields
     if (!appleIdTokenPayload.email) {
       throw new Error('Email not provided by Apple');
     }
 
-    // Extract user information
-    // Note: Apple only provides name on first sign-in
-    // You must capture and store it then
     return {
       email: appleIdTokenPayload.email,
       emailVerified: appleIdTokenPayload.email_verified === 'true',
-      appleId: appleIdTokenPayload.sub, // Apple's unique user ID
+      appleId: appleIdTokenPayload.sub,
       // Note: firstName and lastName are only available on first sign-in
       // They're passed separately in the authorization response
       firstName: undefined,
       lastName: undefined,
     };
   } catch (error) {
-    console.error('Apple token verification failed:', error);
-    throw new Error('Invalid Apple token');
+    logger.error('Apple token verification failed:', error);
+    throw new Error('INVALID_APPLE_TOKEN');
   }
 }
 
 /**
  * Find or create user from Apple account
- * This is a placeholder - implement based on your database schema
  *
  * @param appleUserInfo - Verified Apple user information
  * @param fullName - Optional full name (only provided on first sign-in)
- * @returns User object with tokens
+ * @returns User document
  */
 export async function findOrCreateAppleUser(
   appleUserInfo: AppleUserInfo,
   fullName?: { firstName?: string; lastName?: string }
-) {
-  // TODO: Implement database logic
+): Promise<IUser> {
   // 1. Check if user exists with this Apple ID
-  // 2. If not, check if user exists with this email
-  // 3. If neither exists, create new user with provided name
-  //    IMPORTANT: Apple only provides name on FIRST sign-in
-  //    You must store it in your database then
-  // 4. Update user's Apple ID if needed
-  // 5. Generate JWT tokens
-  // 6. Return user and tokens
+  let user = await User.findOne({ appleId: appleUserInfo.appleId });
+  if (user) {
+    return user;
+  }
 
-  throw new Error('Database implementation required');
+  // 2. Check if user exists with this email
+  user = await User.findOne({ email: appleUserInfo.email.toLowerCase() });
+  if (user) {
+    // Link Apple ID to existing account
+    user.appleId = appleUserInfo.appleId;
+    if (!user.emailVerified && appleUserInfo.emailVerified) {
+      user.emailVerified = true;
+    }
+    await user.save();
+    return user;
+  }
+
+  // 3. Create new user
+  // IMPORTANT: Apple only provides name on FIRST sign-in, so capture it now
+  user = await User.create({
+    email: appleUserInfo.email.toLowerCase(),
+    firstName: fullName?.firstName || appleUserInfo.firstName || '',
+    lastName: fullName?.lastName || appleUserInfo.lastName || '',
+    appleId: appleUserInfo.appleId,
+    emailVerified: appleUserInfo.emailVerified,
+  });
+
+  return user;
 }

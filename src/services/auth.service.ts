@@ -10,7 +10,8 @@ import { User, IUser } from '../models/User';
 import { OTPCode } from '../models/OTPCode';
 import { RefreshToken } from '../models/RefreshToken';
 import { PasswordResetToken } from '../models/PasswordResetToken';
-import { generateOTP, getOTPExpiry } from '../utils/otp';
+import { generateOTP, getOTPExpiry, OTP_RESEND_COOLDOWN_SECONDS } from '../utils/otp';
+import { emailService } from './email.service';
 import { logger } from '../config/logger';
 
 const JWT_SECRET: string = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -27,11 +28,6 @@ interface RegisterData {
 interface LoginData {
   email: string;
   password: string;
-}
-
-interface SocialAuthData {
-  provider: 'google' | 'apple';
-  token: string;
 }
 
 interface AuthTokens {
@@ -104,10 +100,14 @@ class AuthService {
       verified: false,
     });
 
-    logger.info(`OTP for ${email}: ${otp}`);
+    emailService.sendOTPVerification(email.toLowerCase(), {
+      otp,
+      firstName,
+    }).catch((err) => logger.error('Failed to send verification email:', err));
 
     return {
       message: 'Registration successful. Please verify your email with the OTP sent.',
+      retryAfter: OTP_RESEND_COOLDOWN_SECONDS,
     };
   }
 
@@ -136,14 +136,18 @@ class AuthService {
     };
   }
 
-  async socialAuth(data: SocialAuthData) {
-    throw new Error('Use socialAuthController for OAuth');
+  async createSession(user: IUser) {
+    const tokens = await this.generateTokens(user._id.toString(), user.email);
+    return {
+      user: this.sanitizeUser(user),
+      tokens,
+    };
   }
 
   async forgotPassword(email: string) {
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
-      return { message: 'If the email exists, an OTP has been sent.' };
+      return { message: 'If the email exists, an OTP has been sent.', retryAfter: OTP_RESEND_COOLDOWN_SECONDS };
     }
 
     const otp = generateOTP();
@@ -157,10 +161,14 @@ class AuthService {
       verified: false,
     });
 
-    logger.info(`Password reset OTP for ${email}: ${otp}`);
+    emailService.sendOTPPasswordReset(user.email, {
+      otp,
+      firstName: user.firstName || 'there',
+    }).catch((err) => logger.error('Failed to send password reset email:', err));
 
     return {
       message: 'If the email exists, an OTP has been sent.',
+      retryAfter: OTP_RESEND_COOLDOWN_SECONDS,
     };
   }
 
@@ -190,6 +198,10 @@ class AuthService {
 
       const tokens = await this.generateTokens(user._id.toString(), user.email);
 
+      emailService.sendWelcome(user.email, { firstName: user.firstName || 'there' }).catch((err) =>
+        logger.error('Failed to send welcome email:', err)
+      );
+
       return {
         message: 'Email verified successfully',
         user: this.sanitizeUser(user),
@@ -217,7 +229,17 @@ class AuthService {
   async resendOTP(email: string) {
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
-      return { message: 'If the email exists, a new OTP has been sent.' };
+      return { message: 'If the email exists, a new OTP has been sent.', retryAfter: OTP_RESEND_COOLDOWN_SECONDS };
+    }
+
+    // Enforce cooldown between resends
+    const lastOtp = await OTPCode.findOne({ userId: user._id }).sort({ createdAt: -1 });
+    if (lastOtp) {
+      const elapsed = (Date.now() - lastOtp.createdAt.getTime()) / 1000;
+      if (elapsed < OTP_RESEND_COOLDOWN_SECONDS) {
+        const retryAfter = Math.ceil(OTP_RESEND_COOLDOWN_SECONDS - elapsed);
+        throw new Error(`OTP_COOLDOWN:${retryAfter}`);
+      }
     }
 
     await OTPCode.updateMany(
@@ -238,10 +260,15 @@ class AuthService {
       verified: false,
     });
 
-    logger.info(`Resent OTP for ${email}: ${otp}`);
+    const emailData = { otp, firstName: user.firstName || 'there' };
+    const emailPromise = type === 'password-reset'
+      ? emailService.sendOTPPasswordReset(user.email, emailData)
+      : emailService.sendOTPVerification(user.email, emailData);
+    emailPromise.catch((err) => logger.error('Failed to send OTP email:', err));
 
     return {
       message: 'A new OTP has been sent.',
+      retryAfter: OTP_RESEND_COOLDOWN_SECONDS,
     };
   }
 
@@ -267,6 +294,10 @@ class AuthService {
 
     tokenRecord.used = true;
     await tokenRecord.save();
+
+    emailService.sendPasswordChanged(user.email, { firstName: user.firstName || 'there' }).catch((err) =>
+      logger.error('Failed to send password changed email:', err)
+    );
 
     return {
       message: 'Password reset successfully',

@@ -1,22 +1,39 @@
 /**
  * Social Authentication Routes
- * Defines routes for Google and Apple Sign In
+ * Defines routes for Google (server-driven OAuth) and Apple Sign In
  */
 
 import { Router } from 'express';
-import { googleAuthController, appleAuthController } from '../controllers/socialAuthController';
+import { appleAuthController } from '../controllers/socialAuthController';
+import {
+  initiateGoogleAuth,
+  googleCallbackHandler,
+  exchangeSessionHandler,
+} from '../controllers/googleOAuthController';
 
 const router = Router();
 
 /**
- * POST /api/auth/social/google
- * Authenticate with Google OAuth token
+ * GET /api/auth/social/google
+ * Initiates Google OAuth flow (redirects to Google)
  */
-router.post('/google', googleAuthController);
+router.get('/google', initiateGoogleAuth);
+
+/**
+ * GET /api/auth/social/google/callback
+ * Handles Google OAuth callback
+ */
+router.get('/google/callback', googleCallbackHandler);
+
+/**
+ * POST /api/auth/social/exchange-session
+ * Exchanges sessionId for access/refresh tokens
+ */
+router.post('/exchange-session', exchangeSessionHandler);
 
 /**
  * POST /api/auth/social/apple
- * Authenticate with Apple ID token
+ * Authenticate with Apple ID token (client-driven)
  */
 router.post('/apple', appleAuthController);
 

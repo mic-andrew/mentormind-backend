@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 
 const OTP_LENGTH = 6;
 const OTP_EXPIRY_MINUTES = 10;
+export const OTP_RESEND_COOLDOWN_SECONDS = 60;
 
 export function generateOTP(): string {
   // Generate a random 6-digit code
