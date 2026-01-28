@@ -4,7 +4,7 @@
  */
 
 import type { Request, Response } from 'express';
-import { sessionService } from '../services/session.service';
+import { sessionService } from '../services/sessionService';
 import { sendSuccess, sendError, ErrorCodes } from '../utils/response';
 import { logger } from '../config/logger';
 import type { AuthenticatedRequest } from '../middleware/auth';

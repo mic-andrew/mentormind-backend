@@ -9,10 +9,9 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { logger } from './config/logger';
 import { connectDatabase } from './config/database';
-import authRoutes from './routes/auth.routes';
-import socialAuthRoutes from './routes/socialAuth.routes';
-import coachRoutes from './routes/coach.routes';
-import sessionRoutes from './routes/session.routes';
+import authRoutes from './routes/authRoutes';
+import coachRoutes from './routes/coachRoutes';
+import sessionRoutes from './routes/sessionRoutes';
 
 dotenv.config();
 
@@ -30,7 +29,6 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/auth/social', socialAuthRoutes);
 app.use('/api/coaches', coachRoutes);
 app.use('/api/sessions', sessionRoutes);
 

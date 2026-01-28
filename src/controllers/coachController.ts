@@ -4,7 +4,7 @@
  */
 
 import type { Request, Response } from 'express';
-import { coachService } from '../services/coach.service';
+import { coachService } from '../services/coachService';
 import { sendSuccess, sendError, ErrorCodes } from '../utils/response';
 import type { AuthenticatedRequest } from '../middleware/auth';
 import { logger } from '../config/logger';
