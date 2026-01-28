@@ -4,7 +4,7 @@
  */
 
 import type { Request, Response } from 'express';
-import { evaluationService } from '../services/evaluation.service';
+import { evaluationService } from '../services/evaluationService';
 import { sendSuccess, sendError, ErrorCodes } from '../utils/response';
 import { logger } from '../config/logger';
 import type { AuthenticatedRequest } from '../middleware/auth';

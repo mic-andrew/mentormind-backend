@@ -4,8 +4,8 @@
  */
 
 import { Router } from 'express';
-import { sessionController } from '../controllers/session.controller';
-import { evaluationController } from '../controllers/evaluation.controller';
+import { sessionController } from '../controllers/sessionController';
+import { evaluationController } from '../controllers/evaluationController';
 import { authenticate } from '../middleware/auth';
 
 const router = Router();

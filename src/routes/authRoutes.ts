@@ -3,9 +3,8 @@
  */
 
 import { Router } from 'express';
-import { authController } from '../controllers/auth.controller';
+import { authController } from '../controllers/authController';
 import { authenticate } from '../middleware/auth';
-import { exchangeSessionHandler } from '../controllers/googleOAuthController';
 
 const router = Router();
 
@@ -17,7 +16,12 @@ router.post('/verify-otp', (req, res) => authController.verifyOTP(req, res));
 router.post('/resend-otp', (req, res) => authController.resendOTP(req, res));
 router.post('/reset-password', (req, res) => authController.resetPassword(req, res));
 router.post('/refresh', (req, res) => authController.refreshToken(req, res));
-router.post('/exchange-session', exchangeSessionHandler);
+
+// OAuth routes
+router.get('/google', (req, res) => authController.initiateGoogleAuth(req, res));
+router.get('/google/callback', (req, res) => authController.googleCallback(req, res));
+router.post('/exchange-session', (req, res) => authController.exchangeSession(req, res));
+router.post('/apple', (req, res) => authController.appleAuth(req, res));
 
 // Protected routes
 router.get('/me', authenticate, (req, res) => authController.getCurrentUser(req, res));

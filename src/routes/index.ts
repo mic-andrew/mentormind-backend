@@ -3,7 +3,7 @@
  */
 
 import { Router } from 'express';
-import authRoutes from './auth.routes';
+import authRoutes from './authRoutes';
 
 const router = Router();
 

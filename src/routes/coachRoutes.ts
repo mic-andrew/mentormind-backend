@@ -3,7 +3,7 @@
  */
 
 import { Router } from 'express';
-import { coachController } from '../controllers/coach.controller';
+import { coachController } from '../controllers/coachController';
 import { authenticate, optionalAuthenticate } from '../middleware/auth';
 
 const router = Router();

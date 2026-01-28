@@ -3,7 +3,7 @@
  */
 
 import type { Request, Response } from 'express';
-import { authService } from '../services/auth.service';
+import { authService } from '../services/authService';
 import { sendSuccess, sendError, ErrorCodes } from '../utils/response';
 import type { AuthenticatedRequest } from '../middleware/auth';
 import { logger } from '../config/logger';
@@ -172,6 +172,115 @@ export class AuthController {
     } catch (error) {
       logger.error('Logout error:', error);
       sendError(res, ErrorCodes.INTERNAL_ERROR, 'Logout failed', 500);
+    }
+  }
+
+  /**
+   * GET /api/auth/google
+   * Initiates Google OAuth flow
+   */
+  async initiateGoogleAuth(req: Request, res: Response): Promise<void> {
+    try {
+      const { redirectUri, platform, platform_type } = req.query;
+
+      if (!redirectUri || typeof redirectUri !== 'string') {
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'redirectUri is required', 400);
+        return;
+      }
+
+      const authUrl = authService.generateGoogleAuthUrl(
+        redirectUri,
+        (platform as string) || (platform_type as string)
+      );
+
+      res.redirect(authUrl);
+    } catch (error) {
+      logger.error('Google OAuth initiation error:', error);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to initiate Google authentication', 500);
+    }
+  }
+
+  /**
+   * GET /api/auth/google/callback
+   * Handles Google OAuth callback
+   */
+  async googleCallback(req: Request, res: Response): Promise<void> {
+    try {
+      const { code, state } = req.query;
+
+      if (!code || typeof code !== 'string') {
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'Authorization code is required', 400);
+        return;
+      }
+
+      if (!state || typeof state !== 'string') {
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'State parameter is required', 400);
+        return;
+      }
+
+      const { sessionId, redirectUri } = await authService.handleGoogleCallback(code, state);
+
+      // Redirect back to mobile app with sessionId
+      const redirectUrl = `${redirectUri}?sessionId=${sessionId}`;
+      res.redirect(redirectUrl);
+    } catch (error) {
+      logger.error('Google OAuth callback error:', error);
+      res.redirect(`mentormind://auth/google?error=authentication_failed`);
+    }
+  }
+
+  /**
+   * POST /api/auth/exchange-session
+   * Exchanges sessionId for tokens
+   */
+  async exchangeSession(req: Request, res: Response): Promise<void> {
+    try {
+      const { sessionId } = req.body;
+
+      if (!sessionId) {
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'sessionId is required', 400);
+        return;
+      }
+
+      const result = await authService.exchangeSessionId(sessionId);
+      sendSuccess(res, result);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'INVALID_SESSION') {
+        sendError(res, ErrorCodes.INVALID_CREDENTIALS, 'Invalid or expired session', 401);
+        return;
+      }
+      if (error instanceof Error && error.message === 'USER_NOT_FOUND') {
+        sendError(res, ErrorCodes.NOT_FOUND, 'User not found', 404);
+        return;
+      }
+      logger.error('Session exchange error:', error);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to exchange session', 500);
+    }
+  }
+
+  /**
+   * POST /api/auth/apple
+   * Apple Sign In authentication
+   */
+  async appleAuth(req: Request, res: Response): Promise<void> {
+    try {
+      const { token, identityToken, fullName } = req.body;
+      const appleToken = token || identityToken;
+
+      if (!appleToken) {
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'Identity token is required', 400);
+        return;
+      }
+
+      const result = await authService.handleAppleAuth(appleToken, fullName);
+      sendSuccess(res, result);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'APPLE_AUTH_FAILED') {
+        sendError(res, ErrorCodes.INVALID_CREDENTIALS, 'Apple authentication failed', 401);
+        return;
+      }
+      logger.error('Apple auth error:', error);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Apple authentication failed', 500);
     }
   }
 }

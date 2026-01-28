@@ -6,13 +6,17 @@
 import * as bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import * as crypto from 'crypto';
+import { OAuth2Client } from 'google-auth-library';
+import appleSignin from 'apple-signin-auth';
 import { User, IUser } from '../models/User';
 import { OTPCode } from '../models/OTPCode';
 import { RefreshToken } from '../models/RefreshToken';
 import { PasswordResetToken } from '../models/PasswordResetToken';
+import { TemporarySession } from '../models/TemporarySession';
 import { generateOTP, getOTPExpiry, OTP_RESEND_COOLDOWN_SECONDS } from '../utils/otp';
-import { emailService } from './email.service';
+import { emailService } from './emailService';
 import { logger } from '../config/logger';
+import { env } from '../config/env';
 
 const JWT_SECRET: string = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const JWT_EXPIRES_IN: string | number = process.env.JWT_EXPIRES_IN || '1h';
@@ -346,6 +350,188 @@ class AuthService {
     return {
       message: 'Logged out successfully',
     };
+  }
+
+  // Google OAuth (Server-driven flow)
+  generateGoogleAuthUrl(redirectUri: string, platform?: string): string {
+    const oauth2Client = new OAuth2Client(
+      env.googleClientId,
+      env.googleClientSecret,
+      env.googleCallbackUrl
+    );
+
+    const state = crypto.randomBytes(32).toString('hex');
+
+    const authUrl = oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: ['profile', 'email'],
+      state: JSON.stringify({ state, redirectUri, platform }),
+      prompt: 'select_account',
+    });
+
+    return authUrl;
+  }
+
+  async handleGoogleCallback(code: string, state: string): Promise<{ sessionId: string; redirectUri: string }> {
+    try {
+      const oauth2Client = new OAuth2Client(
+        env.googleClientId,
+        env.googleClientSecret,
+        env.googleCallbackUrl
+      );
+
+      // Exchange authorization code for tokens
+      const { tokens } = await oauth2Client.getToken(code);
+      oauth2Client.setCredentials(tokens);
+
+      // Get user info from Google
+      const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch Google user info');
+      }
+
+      const payload = (await response.json()) as Record<string, any>;
+
+      // Find or create user
+      let user = await User.findOne({ googleId: payload.sub });
+
+      if (!user) {
+        user = await User.findOne({ email: payload.email.toLowerCase() });
+
+        if (user) {
+          // Link Google account to existing user
+          user.googleId = payload.sub;
+          if (payload.picture && !user.picture) {
+            user.picture = payload.picture;
+          }
+          if (!user.emailVerified && payload.email_verified) {
+            user.emailVerified = true;
+          }
+          await user.save();
+        } else {
+          // Create new user
+          user = await User.create({
+            email: payload.email.toLowerCase(),
+            googleId: payload.sub,
+            firstName: payload.given_name || payload.name?.split(' ')[0],
+            lastName: payload.family_name || payload.name?.split(' ').slice(1).join(' '),
+            picture: payload.picture,
+            emailVerified: payload.email_verified,
+          });
+        }
+      } else {
+        // Update picture if changed
+        if (payload.picture && user.picture !== payload.picture) {
+          user.picture = payload.picture;
+          await user.save();
+        }
+      }
+
+      // Parse state to get redirect URI
+      const stateData = JSON.parse(state);
+      const redirectUriFromState = stateData.redirectUri;
+
+      // Create temporary session
+      const sessionId = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+      await TemporarySession.create({
+        sessionId,
+        userId: user._id,
+        provider: 'google',
+        expiresAt,
+        used: false,
+      });
+
+      return { sessionId, redirectUri: redirectUriFromState };
+    } catch (error) {
+      logger.error('Google callback handling failed:', error);
+      throw new Error('GOOGLE_AUTH_FAILED');
+    }
+  }
+
+  async exchangeSessionId(sessionId: string): Promise<{ user: any; tokens: AuthTokens }> {
+    const session = await TemporarySession.findOne({
+      sessionId,
+      used: false,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!session) {
+      throw new Error('INVALID_SESSION');
+    }
+
+    // Mark session as used
+    session.used = true;
+    await session.save();
+
+    // Get user
+    const user = await User.findById(session.userId);
+
+    if (!user) {
+      throw new Error('USER_NOT_FOUND');
+    }
+
+    // Generate tokens
+    const tokens = await this.generateTokens(user._id.toString(), user.email);
+
+    return {
+      user: this.sanitizeUser(user),
+      tokens,
+    };
+  }
+
+  // Apple OAuth (Client-driven flow)
+  async handleAppleAuth(
+    token: string,
+    fullName?: { firstName?: string; lastName?: string }
+  ): Promise<{ user: any; tokens: AuthTokens }> {
+    try {
+      // Verify Apple token
+      const appleData = await appleSignin.verifyIdToken(token, {
+        audience: env.googleClientId, // Replace with Apple client ID when configured
+        ignoreExpiration: false,
+      });
+
+      const appleId = appleData.sub;
+      const email = appleData.email;
+
+      // Find or create user
+      let user = await User.findOne({ appleId });
+
+      if (!user) {
+        user = await User.findOne({ email: email?.toLowerCase() });
+
+        if (user) {
+          // Link Apple account to existing user
+          user.appleId = appleId;
+          await user.save();
+        } else {
+          // Create new user (Apple only provides name on first sign in)
+          user = await User.create({
+            email: email?.toLowerCase(),
+            appleId,
+            firstName: fullName?.firstName || '',
+            lastName: fullName?.lastName || '',
+            emailVerified: true, // Apple verifies emails
+          });
+        }
+      }
+
+      // Generate tokens
+      const tokens = await this.generateTokens(user._id.toString(), user.email);
+
+      return {
+        user: this.sanitizeUser(user),
+        tokens,
+      };
+    } catch (error) {
+      logger.error('Apple auth failed:', error);
+      throw new Error('APPLE_AUTH_FAILED');
+    }
   }
 }
 
