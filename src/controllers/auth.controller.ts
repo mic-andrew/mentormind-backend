@@ -48,21 +48,6 @@ export class AuthController {
   }
 
   /**
-   * POST /api/auth/social
-   */
-  async socialAuth(req: Request, res: Response): Promise<void> {
-    try {
-      // In production, you'd validate the social token here
-      // For now, we'll accept the data directly
-      const result = await authService.socialAuth(req.body);
-      sendSuccess(res, result);
-    } catch (error) {
-      logger.error('Social auth error:', error);
-      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Social authentication failed', 500);
-    }
-  }
-
-  /**
    * POST /api/auth/forgot-password
    */
   async forgotPassword(req: Request, res: Response): Promise<void> {
@@ -101,6 +86,18 @@ export class AuthController {
       const result = await authService.resendOTP(req.body.email);
       sendSuccess(res, result);
     } catch (error) {
+      if (error instanceof Error && error.message.startsWith('OTP_COOLDOWN:')) {
+        const retryAfter = parseInt(error.message.split(':')[1], 10);
+        res.status(429).json({
+          success: false,
+          error: {
+            code: ErrorCodes.OTP_COOLDOWN,
+            message: 'Please wait before requesting a new code',
+            retryAfter,
+          },
+        });
+        return;
+      }
       logger.error('Resend OTP error:', error);
       sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to resend code', 500);
     }

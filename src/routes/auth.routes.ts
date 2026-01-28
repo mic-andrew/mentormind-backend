@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import { authController } from '../controllers/auth.controller';
 import { authenticate } from '../middleware/auth';
+import { exchangeSessionHandler } from '../controllers/googleOAuthController';
 
 const router = Router();
 
@@ -16,6 +17,7 @@ router.post('/verify-otp', (req, res) => authController.verifyOTP(req, res));
 router.post('/resend-otp', (req, res) => authController.resendOTP(req, res));
 router.post('/reset-password', (req, res) => authController.resetPassword(req, res));
 router.post('/refresh', (req, res) => authController.refreshToken(req, res));
+router.post('/exchange-session', exchangeSessionHandler);
 
 // Protected routes
 router.get('/me', authenticate, (req, res) => authController.getCurrentUser(req, res));

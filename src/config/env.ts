@@ -22,14 +22,14 @@ export const env = {
     refreshExpiresIn: (process.env.JWT_REFRESH_EXPIRES_IN || '7d') as string,
   },
 
-  // Email
-  smtp: {
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-  emailFrom: process.env.EMAIL_FROM || 'MentorMind <noreply@mentormind.app>',
+  // Email (Resend)
+  resendApiKey: process.env.RESEND_API_KEY!,
+  emailFrom: process.env.EMAIL_FROM || 'MentorMind <onboarding@resend.dev>',
+
+  // Google OAuth
+  googleClientId: process.env.GOOGLE_CLIENT_ID!,
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+  googleCallbackUrl: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3000/auth/google/callback',
 
   // URLs
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:8081',
