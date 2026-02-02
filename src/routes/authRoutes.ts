@@ -25,6 +25,10 @@ router.post('/apple', (req, res) => authController.appleAuth(req, res));
 
 // Protected routes
 router.get('/me', authenticate, (req, res) => authController.getCurrentUser(req, res));
+router.patch('/profile', authenticate, (req, res) => authController.updateProfile(req, res));
+router.patch('/password', authenticate, (req, res) => authController.updatePassword(req, res));
+router.post('/schedule-deletion', authenticate, (req, res) => authController.scheduleAccountDeletion(req, res));
+router.post('/cancel-deletion', authenticate, (req, res) => authController.cancelAccountDeletion(req, res));
 router.post('/logout', authenticate, (req, res) => authController.logout(req, res));
 
 export default router;

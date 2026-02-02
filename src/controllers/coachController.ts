@@ -5,6 +5,8 @@
 
 import type { Request, Response } from 'express';
 import { coachService } from '../services/coachService';
+import { transcriptionService } from '../services/transcriptionService';
+import { aiExtractionService } from '../services/aiExtractionService';
 import { sendSuccess, sendError, ErrorCodes } from '../utils/response';
 import type { AuthenticatedRequest } from '../middleware/auth';
 import { logger } from '../config/logger';
@@ -424,6 +426,133 @@ export class CoachController {
       }
       logger.error('Flag coach error:', error);
       sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to flag coach', 500);
+    }
+  }
+
+  /**
+   * POST /api/coaches/transcribe
+   * Transcribe audio to text using Deepgram
+   */
+  async transcribeAudio(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      logger.info('[Controller:transcribe] Request received', {
+        userId: req.userId,
+        hasFile: !!req.file,
+        fileSize: req.file?.size,
+        mimeType: req.file?.mimetype,
+        fieldName: req.file?.fieldname,
+      });
+
+      if (!req.file) {
+        logger.error('[Controller:transcribe] No audio file in request');
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'No audio file provided', 400);
+        return;
+      }
+
+      logger.info('[Controller:transcribe] Sending to transcription service...');
+      const transcript = await transcriptionService.transcribeAudio(
+        req.file.buffer,
+        req.file.mimetype
+      );
+
+      logger.info('[Controller:transcribe] SUCCESS', { transcriptLength: transcript.length });
+      sendSuccess(res, { transcript });
+    } catch (error) {
+      logger.error('[Controller:transcribe] Error:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to transcribe audio', 500);
+    }
+  }
+
+  /**
+   * POST /api/coaches/extract-from-description
+   * Extract coach attributes from text description
+   */
+  async extractFromDescription(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { description } = req.body;
+
+      logger.info('[Controller:extract] Request received', {
+        userId: req.userId,
+        hasDescription: !!description,
+        descriptionLength: description?.length,
+        preview: typeof description === 'string' ? description.substring(0, 100) : undefined,
+      });
+
+      if (!description || typeof description !== 'string' || description.trim().length < 20) {
+        logger.error('[Controller:extract] Invalid description');
+        sendError(
+          res,
+          ErrorCodes.VALIDATION_ERROR,
+          'Description must be at least 20 characters',
+          400
+        );
+        return;
+      }
+
+      logger.info('[Controller:extract] Sending to AI extraction...');
+      const extractedData = await aiExtractionService.extractCoachFromDescription(description);
+
+      logger.info('[Controller:extract] SUCCESS', {
+        name: extractedData.name,
+        category: extractedData.category,
+      });
+      sendSuccess(res, extractedData);
+    } catch (error) {
+      logger.error('[Controller:extract] Error:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to extract coach data', 500);
+    }
+  }
+
+  /**
+   * POST /api/coaches/quick-create
+   * Full quick create flow: audio -> transcript -> extract -> preview data
+   */
+  async quickCreate(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      logger.info('[Controller:quickCreate] Request received', {
+        userId: req.userId,
+        hasFile: !!req.file,
+        fileSize: req.file?.size,
+        mimeType: req.file?.mimetype,
+      });
+
+      if (!req.file) {
+        logger.error('[Controller:quickCreate] No audio file');
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'No audio file provided', 400);
+        return;
+      }
+
+      // Step 1: Transcribe audio
+      logger.info('[Controller:quickCreate] Step 1: Transcribing...');
+      const transcript = await transcriptionService.transcribeAudio(
+        req.file.buffer,
+        req.file.mimetype
+      );
+      logger.info('[Controller:quickCreate] Transcription done', {
+        transcriptLength: transcript.length,
+      });
+
+      // Step 2: Extract coach attributes
+      logger.info('[Controller:quickCreate] Step 2: Extracting...');
+      const extractedData = await aiExtractionService.extractCoachFromDescription(transcript);
+      logger.info('[Controller:quickCreate] Extraction done', {
+        name: extractedData.name,
+        category: extractedData.category,
+      });
+
+      sendSuccess(res, {
+        transcript,
+        ...extractedData,
+      });
+    } catch (error) {
+      logger.error('[Controller:quickCreate] Error:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to create coach from voice', 500);
     }
   }
 }

@@ -9,9 +9,7 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { logger } from './config/logger';
 import { connectDatabase } from './config/database';
-import authRoutes from './routes/authRoutes';
-import coachRoutes from './routes/coachRoutes';
-import sessionRoutes from './routes/sessionRoutes';
+import { apiRoutes } from './routes';
 
 dotenv.config();
 
@@ -28,9 +26,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/coaches', coachRoutes);
-app.use('/api/sessions', sessionRoutes);
+app.use('/api', apiRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

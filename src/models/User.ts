@@ -22,6 +22,9 @@ export interface IUser extends Document {
   googleId?: string;
   appleId?: string;
   context?: IUserContext;
+  isDeleted: boolean;
+  deletedAt?: Date;
+  deletionScheduledAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -83,6 +86,16 @@ const UserSchema = new Schema<IUser>(
       updatedAt: {
         type: Date,
       },
+    },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+    },
+    deletionScheduledAt: {
+      type: Date,
     },
   },
   {

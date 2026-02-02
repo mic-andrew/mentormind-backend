@@ -5,13 +5,18 @@
 
 import { Coach, ICoach, CoachCategory, generateAvatarUrl } from '../models/Coach';
 import { SharedCoach, SharePermission } from '../models/SharedCoach';
+import { Avatar } from '../models/Avatar';
 import { User } from '../models/User';
 import { Types } from 'mongoose';
 import { logger } from '../config/logger';
+import { emailService } from './emailService';
+import { notificationService } from './notificationService';
+import { env } from '../config/env';
 
 interface CreateCoachData {
   name: string;
   avatar?: string;
+  avatarId?: string;
   specialty: string;
   category: CoachCategory;
   description: string;
@@ -313,13 +318,38 @@ class CoachService {
    */
   async createCoach(data: CreateCoachData, createdBy: 'system' | string) {
     const bucketUrl = process.env.S3_BUCKET_URL || 'https://mentormind-assets.s3.amazonaws.com';
-    const avatar = data.avatar || generateAvatarUrl(data.name, bucketUrl);
-
     const isSystem = createdBy === 'system';
+
+    let avatar = data.avatar || generateAvatarUrl(data.name, bucketUrl);
+    let avatarId: Types.ObjectId | undefined;
+
+    // If avatarId is provided, resolve the avatar image URL from the Avatar collection
+    if (data.avatarId && Types.ObjectId.isValid(data.avatarId)) {
+      const avatarDoc = await Avatar.findById(data.avatarId);
+      if (avatarDoc) {
+        avatar = avatarDoc.avatarImage;
+        avatarId = avatarDoc._id as Types.ObjectId;
+
+        // Assign avatar to user (track usage)
+        if (!isSystem) {
+          const userObjectId = new Types.ObjectId(createdBy);
+          const alreadyAssigned = avatarDoc.users.some(
+            (u) => u.toString() === createdBy
+          );
+          if (!alreadyAssigned) {
+            await Avatar.findByIdAndUpdate(data.avatarId, {
+              $addToSet: { users: userObjectId },
+              $inc: { activeUsersCount: 1 },
+            });
+          }
+        }
+      }
+    }
 
     const coach = await Coach.create({
       ...data,
       avatar,
+      avatarId,
       createdBy: isSystem ? 'system' : new Types.ObjectId(createdBy),
       isVerified: isSystem,
       isPublished: isSystem, // User coaches start unpublished (only visible to owner/shared)
@@ -529,7 +559,42 @@ class CoachService {
 
     logger.info(`Coach shared: ${coach.name} -> ${email}`);
 
-    // TODO: Send email notification to recipient
+    // Send email notification based on whether recipient is a user
+    if (recipient) {
+      // Existing user - send notification
+      emailService.sendCoachShareNotification({
+        to: email,
+        recipientName: recipient.firstName || 'there',
+        senderName: owner?.firstName || 'A user',
+        coachName: coach.name,
+        coachSpecialty: coach.specialty,
+        coachBio: coach.bio,
+        coachAvatar: coach.avatar,
+        permissionLevel: data.permission,
+        coachUrl: `${env.frontendUrl}/coaches/${coachId}`,
+      }).catch((err) => logger.error('Failed to send coach share notification:', err));
+
+      // Create in-app notification for existing user
+      notificationService.createCoachShareNotification(
+        recipient._id.toString(),
+        ownerId,
+        coachId,
+        coach.name,
+        share._id.toString()
+      ).catch((err) => logger.error('Failed to create share notification:', err));
+    } else {
+      // New user - send invitation
+      emailService.sendCoachInvitation({
+        to: email,
+        senderName: owner?.firstName || 'A user',
+        senderEmail: owner?.email || '',
+        coachName: coach.name,
+        coachSpecialty: coach.specialty,
+        coachBio: coach.bio,
+        coachAvatar: coach.avatar,
+        acceptUrl: `${env.frontendUrl}/signup?invite=${share._id}`,
+      }).catch((err) => logger.error('Failed to send coach invitation:', err));
+    }
 
     return {
       id: share._id.toString(),
@@ -574,6 +639,17 @@ class CoachService {
 
     logger.info(`Share accepted: ${shareId} by ${userId}`);
 
+    // Notify the coach owner
+    const coach = await Coach.findById(share.coachId);
+    if (coach) {
+      notificationService.createCoachAcceptedNotification(
+        share.ownerId.toString(),
+        userId,
+        share.coachId.toString(),
+        coach.name
+      ).catch((err) => logger.error('Failed to create accept notification:', err));
+    }
+
     return { message: 'Share invitation accepted' };
   }
 
@@ -607,6 +683,17 @@ class CoachService {
     await share.save();
 
     logger.info(`Share declined: ${shareId} by ${userId}`);
+
+    // Notify the coach owner
+    const coach = await Coach.findById(share.coachId);
+    if (coach) {
+      notificationService.createCoachDeclinedNotification(
+        share.ownerId.toString(),
+        userId,
+        share.coachId.toString(),
+        coach.name
+      ).catch((err) => logger.error('Failed to create decline notification:', err));
+    }
 
     return { message: 'Share invitation declined' };
   }

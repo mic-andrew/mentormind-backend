@@ -162,6 +162,96 @@ export class AuthController {
   }
 
   /**
+   * PATCH /api/auth/profile
+   */
+  async updateProfile(req: Request, res: Response): Promise<void> {
+    try {
+      const { userId } = req as AuthenticatedRequest;
+      const { firstName, lastName } = req.body;
+      const user = await authService.updateUser(userId, { firstName, lastName });
+      sendSuccess(res, user);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'NOT_FOUND') {
+        sendError(res, ErrorCodes.NOT_FOUND, 'User not found', 404);
+        return;
+      }
+      logger.error('Update profile error:', error);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to update profile', 500);
+    }
+  }
+
+  /**
+   * PATCH /api/auth/password
+   */
+  async updatePassword(req: Request, res: Response): Promise<void> {
+    try {
+      const { userId } = req as AuthenticatedRequest;
+      const { currentPassword, newPassword } = req.body;
+      const result = await authService.updatePassword(userId, currentPassword, newPassword);
+      sendSuccess(res, result);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'NOT_FOUND') {
+        sendError(res, ErrorCodes.NOT_FOUND, 'User not found', 404);
+        return;
+      }
+      if (error instanceof Error && error.message === 'CURRENT_PASSWORD_REQUIRED') {
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'Current password is required', 400);
+        return;
+      }
+      if (error instanceof Error && error.message === 'INVALID_PASSWORD') {
+        sendError(res, ErrorCodes.INVALID_CREDENTIALS, 'Current password is incorrect', 401);
+        return;
+      }
+      logger.error('Update password error:', error);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to update password', 500);
+    }
+  }
+
+  /**
+   * POST /api/auth/schedule-deletion
+   */
+  async scheduleAccountDeletion(req: Request, res: Response): Promise<void> {
+    try {
+      const { userId } = req as AuthenticatedRequest;
+      const result = await authService.scheduleAccountDeletion(userId);
+      sendSuccess(res, result);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'NOT_FOUND') {
+        sendError(res, ErrorCodes.NOT_FOUND, 'User not found', 404);
+        return;
+      }
+      if (error instanceof Error && error.message === 'ALREADY_DELETED') {
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'Account is already scheduled for deletion', 400);
+        return;
+      }
+      logger.error('Schedule deletion error:', error);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to schedule account deletion', 500);
+    }
+  }
+
+  /**
+   * POST /api/auth/cancel-deletion
+   */
+  async cancelAccountDeletion(req: Request, res: Response): Promise<void> {
+    try {
+      const { userId } = req as AuthenticatedRequest;
+      const result = await authService.cancelAccountDeletion(userId);
+      sendSuccess(res, result);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'NOT_FOUND') {
+        sendError(res, ErrorCodes.NOT_FOUND, 'User not found', 404);
+        return;
+      }
+      if (error instanceof Error && error.message === 'NO_DELETION_SCHEDULED') {
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'No deletion is scheduled', 400);
+        return;
+      }
+      logger.error('Cancel deletion error:', error);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to cancel account deletion', 500);
+    }
+  }
+
+  /**
    * POST /api/auth/logout
    */
   async logout(req: Request, res: Response): Promise<void> {
