@@ -9,6 +9,7 @@ import { Transcript, ITranscriptSpeaker } from '../models/Transcript';
 import { Coach, ICoach } from '../models/Coach';
 import { User, IUser } from '../models/User';
 import { logger } from '../config/logger';
+import { subscriptionService } from './subscriptionService';
 
 // Voice mapping based on coach tone
 const TONE_TO_VOICE: Record<string, string> = {
@@ -212,6 +213,12 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
     const user = await User.findById(userId);
     if (!user) {
       throw new Error('USER_NOT_FOUND');
+    }
+
+    // Check free tier session limit
+    const canStart = await subscriptionService.canStartSession(userId);
+    if (!canStart) {
+      throw new Error('SESSION_LIMIT_EXCEEDED');
     }
 
     // Check for existing active session and mark as abandoned

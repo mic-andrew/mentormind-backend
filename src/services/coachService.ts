@@ -12,6 +12,7 @@ import { logger } from '../config/logger';
 import { emailService } from './emailService';
 import { notificationService } from './notificationService';
 import { env } from '../config/env';
+import { subscriptionService } from './subscriptionService';
 
 interface CreateCoachData {
   name: string;
@@ -319,6 +320,14 @@ class CoachService {
   async createCoach(data: CreateCoachData, createdBy: 'system' | string) {
     const bucketUrl = process.env.S3_BUCKET_URL || 'https://mentormind-assets.s3.amazonaws.com';
     const isSystem = createdBy === 'system';
+
+    // Check free tier coach creation limit (skip for system-created coaches)
+    if (!isSystem) {
+      const canCreate = await subscriptionService.canCreateCoach(createdBy);
+      if (!canCreate) {
+        throw new Error('COACH_LIMIT_EXCEEDED');
+      }
+    }
 
     let avatar = data.avatar || generateAvatarUrl(data.name, bucketUrl);
     let avatarId: Types.ObjectId | undefined;
