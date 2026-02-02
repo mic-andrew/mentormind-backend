@@ -2,9 +2,19 @@
  * Coach Routes
  */
 
+import type { Request, Response } from 'express';
 import { Router } from 'express';
+import multer from 'multer';
 import { coachController } from '../controllers/coachController';
-import { authenticate, optionalAuthenticate } from '../middleware/auth';
+import { authenticate, optionalAuthenticate, type AuthenticatedRequest } from '../middleware/auth';
+
+// Configure multer for memory storage
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max
+  },
+});
 
 const router = Router();
 
@@ -16,6 +26,12 @@ router.get('/categories', (req, res) => coachController.getCategories(req, res))
 // Protected routes (specific paths before parameterized)
 router.get('/my-coaches', authenticate, (req, res) => coachController.getMyCoaches(req, res));
 router.get('/pending-shares', authenticate, (req, res) => coachController.getPendingShares(req, res));
+
+// Voice creation routes
+router.post('/transcribe', authenticate, upload.single('audio'), (req: Request, res: Response) => coachController.transcribeAudio(req as AuthenticatedRequest, res));
+router.post('/extract-from-description', authenticate, (req: Request, res: Response) => coachController.extractFromDescription(req as AuthenticatedRequest, res));
+router.post('/quick-create', authenticate, upload.single('audio'), (req: Request, res: Response) => coachController.quickCreate(req as AuthenticatedRequest, res));
+
 router.post('/', authenticate, (req, res) => coachController.createCoach(req, res));
 
 // Share invitation actions (before :id routes)

@@ -72,6 +72,9 @@ class AuthService {
       lastName: user.lastName,
       picture: user.picture,
       emailVerified: user.emailVerified,
+      password: user.password ? 'set' : undefined, // Don't send actual password, just indicate if it exists
+      googleId: user.googleId,
+      appleId: user.appleId,
     };
   }
 
@@ -104,10 +107,7 @@ class AuthService {
       verified: false,
     });
 
-    emailService.sendOTPVerification(email.toLowerCase(), {
-      otp,
-      firstName,
-    }).catch((err) => logger.error('Failed to send verification email:', err));
+    emailService.sendOTPVerification(email.toLowerCase(), otp, firstName).catch((err) => logger.error('Failed to send verification email:', err));
 
     return {
       message: 'Registration successful. Please verify your email with the OTP sent.',
@@ -129,6 +129,22 @@ class AuthService {
     }
 
     if (!user.emailVerified) {
+      // Send a fresh OTP so the user can verify from the OTP screen
+      const otp = generateOTP();
+      const otpExpiry = getOTPExpiry();
+
+      await OTPCode.create({
+        userId: user._id,
+        code: otp,
+        expiresAt: otpExpiry,
+        type: 'registration',
+        verified: false,
+      });
+
+      emailService
+        .sendOTPVerification(user.email, otp, user.firstName || 'there')
+        .catch((err) => logger.error('Failed to send verification email:', err));
+
       throw new Error('EMAIL_NOT_VERIFIED');
     }
 
@@ -165,10 +181,7 @@ class AuthService {
       verified: false,
     });
 
-    emailService.sendOTPPasswordReset(user.email, {
-      otp,
-      firstName: user.firstName || 'there',
-    }).catch((err) => logger.error('Failed to send password reset email:', err));
+    emailService.sendPasswordResetOTP(user.email, otp, user.firstName || 'there').catch((err) => logger.error('Failed to send password reset email:', err));
 
     return {
       message: 'If the email exists, an OTP has been sent.',
@@ -202,7 +215,7 @@ class AuthService {
 
       const tokens = await this.generateTokens(user._id.toString(), user.email);
 
-      emailService.sendWelcome(user.email, { firstName: user.firstName || 'there' }).catch((err) =>
+      emailService.sendWelcome(user.email, user.firstName || 'there').catch((err) =>
         logger.error('Failed to send welcome email:', err)
       );
 
@@ -264,10 +277,9 @@ class AuthService {
       verified: false,
     });
 
-    const emailData = { otp, firstName: user.firstName || 'there' };
     const emailPromise = type === 'password-reset'
-      ? emailService.sendOTPPasswordReset(user.email, emailData)
-      : emailService.sendOTPVerification(user.email, emailData);
+      ? emailService.sendPasswordResetOTP(user.email, otp, user.firstName || 'there')
+      : emailService.sendOTPVerification(user.email, otp, user.firstName || 'there');
     emailPromise.catch((err) => logger.error('Failed to send OTP email:', err));
 
     return {
@@ -299,7 +311,7 @@ class AuthService {
     tokenRecord.used = true;
     await tokenRecord.save();
 
-    emailService.sendPasswordChanged(user.email, { firstName: user.firstName || 'there' }).catch((err) =>
+    emailService.sendPasswordChanged(user.email, user.firstName || 'there').catch((err) =>
       logger.error('Failed to send password changed email:', err)
     );
 
@@ -339,6 +351,104 @@ class AuthService {
     }
 
     return this.sanitizeUser(user);
+  }
+
+  async updateUser(userId: string, updates: { firstName?: string; lastName?: string }) {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('NOT_FOUND');
+    }
+
+    if (updates.firstName !== undefined) {
+      user.firstName = updates.firstName;
+    }
+
+    if (updates.lastName !== undefined) {
+      user.lastName = updates.lastName;
+    }
+
+    await user.save();
+
+    return this.sanitizeUser(user);
+  }
+
+  async updatePassword(userId: string, currentPassword: string | undefined, newPassword: string) {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('NOT_FOUND');
+    }
+
+    // If user has a password, verify current password
+    if (user.password) {
+      if (!currentPassword) {
+        throw new Error('CURRENT_PASSWORD_REQUIRED');
+      }
+      const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+      if (!isPasswordValid) {
+        throw new Error('INVALID_PASSWORD');
+      }
+    }
+
+    // Set/update password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await user.save();
+
+    const message = user.password ? 'Password updated successfully' : 'Password created successfully';
+
+    emailService.sendPasswordChanged(user.email, user.firstName || 'there').catch((err) =>
+      logger.error('Failed to send password changed email:', err)
+    );
+
+    return {
+      message,
+    };
+  }
+
+  async scheduleAccountDeletion(userId: string) {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('NOT_FOUND');
+    }
+
+    if (user.isDeleted) {
+      throw new Error('ALREADY_DELETED');
+    }
+
+    // Schedule deletion for 30 days from now
+    const deletionDate = new Date();
+    deletionDate.setDate(deletionDate.getDate() + 30);
+
+    user.deletionScheduledAt = deletionDate;
+    await user.save();
+
+    // TODO: Send email notification about scheduled deletion
+    emailService.sendAccountDeletionScheduled?.(user.email, user.firstName || 'there', deletionDate).catch((err) =>
+      logger.error('Failed to send deletion scheduled email:', err)
+    );
+
+    return {
+      message: 'Account deletion scheduled',
+      deletionDate,
+    };
+  }
+
+  async cancelAccountDeletion(userId: string) {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('NOT_FOUND');
+    }
+
+    if (!user.deletionScheduledAt) {
+      throw new Error('NO_DELETION_SCHEDULED');
+    }
+
+    user.deletionScheduledAt = undefined;
+    await user.save();
+
+    return {
+      message: 'Account deletion cancelled',
+    };
   }
 
   async logout(userId: string) {

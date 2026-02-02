@@ -27,3 +27,8 @@ prisma/migrations/
 
 # Test coverage
 coverage/
+
+# Seed files
+src/seeds/
+
+.env

@@ -64,6 +64,7 @@ export interface ICoach extends Document {
   // Identity & Presentation
   name: string;
   avatar: string;
+  avatarId?: Types.ObjectId;
   specialty: string;
   category: CoachCategory;
   description: string;
@@ -142,6 +143,10 @@ const CoachSchema = new Schema<ICoach>(
     avatar: {
       type: String,
       required: true,
+    },
+    avatarId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Avatar',
     },
     specialty: {
       type: String,
