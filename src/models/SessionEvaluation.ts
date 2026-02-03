@@ -123,7 +123,11 @@ const TipSchema = new Schema<ITip>(
 
 const ResourceSchema = new Schema<IResource>(
   {
-    type: { type: String, enum: ['book', 'article', 'podcast', 'video', 'course', 'exercise'], required: true },
+    type: {
+      type: String,
+      enum: ['book', 'article', 'podcast', 'video', 'course', 'exercise'],
+      required: true,
+    },
     title: { type: String, required: true },
     author: { type: String, required: true },
     matchScore: { type: Number, required: true, min: 0, max: 100 },

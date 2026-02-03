@@ -43,7 +43,7 @@ class EmailService {
     logger.info(`Sending template email to ${to}: ${templateId}`);
     try {
       const { error } = await this.resend.emails.send({
-        from: env.emailFrom,
+        from: env.emailFrom!,
         to,
         template: { id: templateId, variables },
       });
@@ -66,7 +66,7 @@ class EmailService {
   async sendRawEmail({ to, subject, html }: SendRawEmailOptions): Promise<void> {
     try {
       const { error } = await this.resend.emails.send({
-        from: env.emailFrom,
+        from: env.emailFrom!,
         to,
         subject,
         html,
@@ -127,7 +127,11 @@ class EmailService {
   /**
    * Send welcome email after verification
    */
-  async sendWelcome(to: string, firstName: string, appUrl: string = env.frontendUrl): Promise<void> {
+  async sendWelcome(
+    to: string,
+    firstName: string,
+    appUrl: string = env.frontendUrl || ''
+  ): Promise<void> {
     await this.sendTemplateEmail({
       to,
       templateId: RESEND_TEMPLATE_IDS.WELCOME,

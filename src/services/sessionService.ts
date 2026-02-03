@@ -126,7 +126,7 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
     const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openaiKey}`,
+        Authorization: `Bearer ${openaiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -396,9 +396,7 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
     }
 
     // Deduplicate: collect existing entryIds
-    const existingEntryIds = new Set(
-      transcript.utterances.map((u) => u.entryId)
-    );
+    const existingEntryIds = new Set(transcript.utterances.map((u) => u.entryId));
 
     const newUtterances = utterances
       .filter((u) => !existingEntryIds.has(u.entryId))
@@ -438,7 +436,9 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
 
     await Transcript.updateOne({ _id: transcript._id }, updateOps);
 
-    logger.info(`Transcript saved for session ${sessionId}: ${newUtterances.length} new, ${duplicates} duplicates`);
+    logger.info(
+      `Transcript saved for session ${sessionId}: ${newUtterances.length} new, ${duplicates} duplicates`
+    );
 
     return { saved: newUtterances.length, duplicates };
   }
@@ -478,9 +478,7 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
     if (!session.title) {
       const transcript = await Transcript.findOne({ sessionId: session._id });
       if (transcript) {
-        const firstUserUtterance = transcript.utterances.find(
-          (u) => u.speakerId === 'user'
-        );
+        const firstUserUtterance = transcript.utterances.find((u) => u.speakerId === 'user');
         if (firstUserUtterance) {
           const title =
             firstUserUtterance.content.substring(0, 50) +
@@ -491,7 +489,9 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
       }
     }
 
-    logger.info(`Voice session ended: ${sessionId} by user ${userId}, duration: ${data.durationMs}ms`);
+    logger.info(
+      `Voice session ended: ${sessionId} by user ${userId}, duration: ${data.durationMs}ms`
+    );
 
     const coach = await Coach.findById(session.coachId);
     return this.sanitizeSession(session, coach || undefined);

@@ -62,4 +62,7 @@ TranscriptEntrySchema.index({ sessionId: 1, timestamp: 1 });
 // Unique index for deduplication
 TranscriptEntrySchema.index({ sessionId: 1, entryId: 1 }, { unique: true });
 
-export const TranscriptEntry = mongoose.model<ITranscriptEntry>('TranscriptEntry', TranscriptEntrySchema);
+export const TranscriptEntry = mongoose.model<ITranscriptEntry>(
+  'TranscriptEntry',
+  TranscriptEntrySchema
+);

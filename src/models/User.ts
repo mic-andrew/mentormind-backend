@@ -79,10 +79,12 @@ const UserSchema = new Schema<IUser>(
         type: String,
         maxlength: 500,
       },
-      keyChallenges: [{
-        type: String,
-        maxlength: 200,
-      }],
+      keyChallenges: [
+        {
+          type: String,
+          maxlength: 200,
+        },
+      ],
       updatedAt: {
         type: Date,
       },

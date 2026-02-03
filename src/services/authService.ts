@@ -20,7 +20,7 @@ import { env } from '../config/env';
 
 const JWT_SECRET: string = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const JWT_EXPIRES_IN: string | number = process.env.JWT_EXPIRES_IN || '1h';
-const JWT_REFRESH_EXPIRES_IN: string | number = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
+const _JWT_REFRESH_EXPIRES_IN: string | number = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 
 interface RegisterData {
   email: string;
@@ -41,11 +41,9 @@ interface AuthTokens {
 
 class AuthService {
   private async generateTokens(userId: string, email: string): Promise<AuthTokens> {
-    const accessToken = jwt.sign(
-      { userId, email },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN } as jwt.SignOptions
-    );
+    const accessToken = jwt.sign({ userId, email }, JWT_SECRET, {
+      expiresIn: JWT_EXPIRES_IN,
+    } as jwt.SignOptions);
 
     const refreshTokenString = crypto.randomBytes(64).toString('hex');
     const refreshTokenExpiry = new Date();
@@ -107,7 +105,9 @@ class AuthService {
       verified: false,
     });
 
-    emailService.sendOTPVerification(email.toLowerCase(), otp, firstName).catch((err) => logger.error('Failed to send verification email:', err));
+    emailService
+      .sendOTPVerification(email.toLowerCase(), otp, firstName)
+      .catch((err) => logger.error('Failed to send verification email:', err));
 
     return {
       message: 'Registration successful. Please verify your email with the OTP sent.',
@@ -167,7 +167,10 @@ class AuthService {
   async forgotPassword(email: string) {
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
-      return { message: 'If the email exists, an OTP has been sent.', retryAfter: OTP_RESEND_COOLDOWN_SECONDS };
+      return {
+        message: 'If the email exists, an OTP has been sent.',
+        retryAfter: OTP_RESEND_COOLDOWN_SECONDS,
+      };
     }
 
     const otp = generateOTP();
@@ -181,7 +184,9 @@ class AuthService {
       verified: false,
     });
 
-    emailService.sendPasswordResetOTP(user.email, otp, user.firstName || 'there').catch((err) => logger.error('Failed to send password reset email:', err));
+    emailService
+      .sendPasswordResetOTP(user.email, otp, user.firstName || 'there')
+      .catch((err) => logger.error('Failed to send password reset email:', err));
 
     return {
       message: 'If the email exists, an OTP has been sent.',
@@ -215,9 +220,9 @@ class AuthService {
 
       const tokens = await this.generateTokens(user._id.toString(), user.email);
 
-      emailService.sendWelcome(user.email, user.firstName || 'there').catch((err) =>
-        logger.error('Failed to send welcome email:', err)
-      );
+      emailService
+        .sendWelcome(user.email, user.firstName || 'there')
+        .catch((err) => logger.error('Failed to send welcome email:', err));
 
       return {
         message: 'Email verified successfully',
@@ -246,7 +251,10 @@ class AuthService {
   async resendOTP(email: string) {
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
-      return { message: 'If the email exists, a new OTP has been sent.', retryAfter: OTP_RESEND_COOLDOWN_SECONDS };
+      return {
+        message: 'If the email exists, a new OTP has been sent.',
+        retryAfter: OTP_RESEND_COOLDOWN_SECONDS,
+      };
     }
 
     // Enforce cooldown between resends
@@ -259,10 +267,7 @@ class AuthService {
       }
     }
 
-    await OTPCode.updateMany(
-      { userId: user._id, verified: false },
-      { verified: true }
-    );
+    await OTPCode.updateMany({ userId: user._id, verified: false }, { verified: true });
 
     const otp = generateOTP();
     const otpExpiry = getOTPExpiry();
@@ -277,9 +282,10 @@ class AuthService {
       verified: false,
     });
 
-    const emailPromise = type === 'password-reset'
-      ? emailService.sendPasswordResetOTP(user.email, otp, user.firstName || 'there')
-      : emailService.sendOTPVerification(user.email, otp, user.firstName || 'there');
+    const emailPromise =
+      type === 'password-reset'
+        ? emailService.sendPasswordResetOTP(user.email, otp, user.firstName || 'there')
+        : emailService.sendOTPVerification(user.email, otp, user.firstName || 'there');
     emailPromise.catch((err) => logger.error('Failed to send OTP email:', err));
 
     return {
@@ -311,9 +317,9 @@ class AuthService {
     tokenRecord.used = true;
     await tokenRecord.save();
 
-    emailService.sendPasswordChanged(user.email, user.firstName || 'there').catch((err) =>
-      logger.error('Failed to send password changed email:', err)
-    );
+    emailService
+      .sendPasswordChanged(user.email, user.firstName || 'there')
+      .catch((err) => logger.error('Failed to send password changed email:', err));
 
     return {
       message: 'Password reset successfully',
@@ -394,11 +400,13 @@ class AuthService {
     user.password = hashedPassword;
     await user.save();
 
-    const message = user.password ? 'Password updated successfully' : 'Password created successfully';
+    const message = user.password
+      ? 'Password updated successfully'
+      : 'Password created successfully';
 
-    emailService.sendPasswordChanged(user.email, user.firstName || 'there').catch((err) =>
-      logger.error('Failed to send password changed email:', err)
-    );
+    emailService
+      .sendPasswordChanged(user.email, user.firstName || 'there')
+      .catch((err) => logger.error('Failed to send password changed email:', err));
 
     return {
       message,
@@ -423,9 +431,10 @@ class AuthService {
     await user.save();
 
     // TODO: Send email notification about scheduled deletion
-    emailService.sendAccountDeletionScheduled?.(user.email, user.firstName || 'there', deletionDate).catch((err) =>
-      logger.error('Failed to send deletion scheduled email:', err)
-    );
+    // TODO: Implement sendAccountDeletionScheduled in emailService
+    // emailService
+    //   .sendAccountDeletionScheduled(user.email, user.firstName || 'there', deletionDate)
+    //   .catch((err: unknown) => logger.error('Failed to send deletion scheduled email:', err));
 
     return {
       message: 'Account deletion scheduled',
@@ -452,10 +461,7 @@ class AuthService {
   }
 
   async logout(userId: string) {
-    await RefreshToken.updateMany(
-      { userId, revoked: false },
-      { revoked: true }
-    );
+    await RefreshToken.updateMany({ userId, revoked: false }, { revoked: true });
 
     return {
       message: 'Logged out successfully',
@@ -482,7 +488,10 @@ class AuthService {
     return authUrl;
   }
 
-  async handleGoogleCallback(code: string, state: string): Promise<{ sessionId: string; redirectUri: string }> {
+  async handleGoogleCallback(
+    code: string,
+    state: string
+  ): Promise<{ sessionId: string; redirectUri: string }> {
     try {
       const oauth2Client = new OAuth2Client(
         env.googleClientId,

@@ -221,7 +221,12 @@ export class AuthController {
         return;
       }
       if (error instanceof Error && error.message === 'ALREADY_DELETED') {
-        sendError(res, ErrorCodes.VALIDATION_ERROR, 'Account is already scheduled for deletion', 400);
+        sendError(
+          res,
+          ErrorCodes.VALIDATION_ERROR,
+          'Account is already scheduled for deletion',
+          400
+        );
         return;
       }
       logger.error('Schedule deletion error:', error);

@@ -6,12 +6,7 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
 export type SubscriptionPlan = 'free' | 'monthly' | 'annual';
-export type SubscriptionStatusType =
-  | 'active'
-  | 'expired'
-  | 'cancelled'
-  | 'billing_issue'
-  | 'trial';
+export type SubscriptionStatusType = 'active' | 'expired' | 'cancelled' | 'billing_issue' | 'trial';
 export type StorePlatform = 'APP_STORE' | 'PLAY_STORE' | 'AMAZON' | 'STRIPE' | 'RC_BILLING';
 export type EnvironmentType = 'SANDBOX' | 'PRODUCTION';
 export type PeriodType = 'TRIAL' | 'INTRO' | 'NORMAL' | 'PROMOTIONAL' | 'PREPAID';
@@ -54,9 +49,11 @@ const SubscriptionSchema = new Schema<ISubscription>(
       type: String,
       required: true,
     },
-    entitlementIds: [{
-      type: String,
-    }],
+    entitlementIds: [
+      {
+        type: String,
+      },
+    ],
     plan: {
       type: String,
       enum: ['free', 'monthly', 'annual'],

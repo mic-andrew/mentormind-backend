@@ -96,7 +96,8 @@ Respond ONLY with valid JSON, no markdown code blocks or explanations.`;
         messages: [
           {
             role: 'system',
-            content: 'You are a helpful assistant that extracts structured data and responds only in valid JSON format.',
+            content:
+              'You are a helpful assistant that extracts structured data and responds only in valid JSON format.',
           },
           {
             role: 'user',

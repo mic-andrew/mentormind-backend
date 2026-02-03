@@ -162,7 +162,11 @@ class SessionController {
         return;
       }
 
-      const result = await sessionService.endSession(sessionId, userId, { durationMs, finalUtterances, speakers });
+      const result = await sessionService.endSession(sessionId, userId, {
+        durationMs,
+        finalUtterances,
+        speakers,
+      });
       sendSuccess(res, result);
     } catch (error) {
       if (error instanceof Error) {

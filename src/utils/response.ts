@@ -37,11 +37,7 @@ interface ErrorResponse {
   };
 }
 
-export function sendSuccess<T>(
-  res: Response,
-  data: T,
-  statusCode: number = 200
-): void {
+export function sendSuccess<T>(res: Response, data: T, statusCode: number = 200): void {
   const response: SuccessResponse<T> = {
     success: true,
     data,

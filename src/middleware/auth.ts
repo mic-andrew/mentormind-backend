@@ -95,7 +95,7 @@ export function optionalAuthenticate(req: Request, res: Response, next: NextFunc
     }
 
     next();
-  } catch (error) {
+  } catch (_error) {
     // Ignore errors for optional authentication
     next();
   }

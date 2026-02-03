@@ -89,10 +89,7 @@ class AvatarService {
     }
 
     const [avatars, total] = await Promise.all([
-      Avatar.find(query)
-        .sort({ activeUsersCount: -1, createdAt: -1 })
-        .skip(skip)
-        .limit(limit),
+      Avatar.find(query).sort({ activeUsersCount: -1, createdAt: -1 }).skip(skip).limit(limit),
       Avatar.countDocuments(query),
     ]);
 
@@ -133,10 +130,7 @@ class AvatarService {
     }
 
     const [avatars, total] = await Promise.all([
-      Avatar.find(query)
-        .sort({ activeUsersCount: -1, createdAt: -1 })
-        .skip(skip)
-        .limit(limit),
+      Avatar.find(query).sort({ activeUsersCount: -1, createdAt: -1 }).skip(skip).limit(limit),
       Avatar.countDocuments(query),
     ]);
 
@@ -266,7 +260,8 @@ Example: {"matches": [3, 7, 12, 0, 45]}`;
         messages: [
           {
             role: 'system',
-            content: 'You select the best matching avatar for AI coaches. Respond only with valid JSON.',
+            content:
+              'You select the best matching avatar for AI coaches. Respond only with valid JSON.',
           },
           { role: 'user', content: prompt },
         ],
@@ -350,9 +345,7 @@ Example: {"matches": [3, 7, 12, 0, 45]}`;
       throw new Error('AVATAR_NOT_FOUND');
     }
 
-    const alreadyAssigned = avatar.users.some(
-      (u) => u.toString() === userId
-    );
+    const alreadyAssigned = avatar.users.some((u) => u.toString() === userId);
 
     if (alreadyAssigned) {
       // User already assigned, no need to update
@@ -381,9 +374,7 @@ Example: {"matches": [3, 7, 12, 0, 45]}`;
       return false;
     }
 
-    const alreadyUsing = avatar.users.some(
-      (u) => u.toString() === userId
-    );
+    const alreadyUsing = avatar.users.some((u) => u.toString() === userId);
 
     if (!alreadyUsing) {
       return true;

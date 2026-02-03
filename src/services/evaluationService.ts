@@ -185,7 +185,10 @@ Coach: ${context.coachName} (${context.coachSpecialty}, Category: ${context.coac
   /**
    * Call OpenAI Chat Completions API
    */
-  private async callOpenAI(transcript: string, context: EvaluationContext): Promise<EvaluationContent> {
+  private async callOpenAI(
+    transcript: string,
+    context: EvaluationContext
+  ): Promise<EvaluationContent> {
     const openaiKey = process.env.OPENAI_API_KEY;
     if (!openaiKey) {
       throw new Error('OPENAI_API_KEY not configured');
@@ -197,7 +200,7 @@ Coach: ${context.coachName} (${context.coachSpecialty}, Category: ${context.coac
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openaiKey}`,
+        Authorization: `Bearer ${openaiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -335,10 +338,7 @@ Coach: ${context.coachName} (${context.coachSpecialty}, Category: ${context.coac
 
     try {
       // Format transcript and build context
-      const formattedTranscript = this.formatTranscript(
-        transcript.utterances,
-        transcript.speakers
-      );
+      const formattedTranscript = this.formatTranscript(transcript.utterances, transcript.speakers);
 
       const context: EvaluationContext = {
         coachName: coach?.name || 'Coach',
@@ -370,8 +370,7 @@ Coach: ${context.coachName} (${context.coachSpecialty}, Category: ${context.coac
     } catch (error) {
       // Mark as failed
       evaluation.status = 'failed';
-      evaluation.errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
+      evaluation.errorMessage = error instanceof Error ? error.message : 'Unknown error';
       evaluation.generationTimeMs = Date.now() - startTime;
       await evaluation.save();
 

@@ -211,7 +211,12 @@ export class CoachController {
           return;
         }
         if (error.message === 'FORBIDDEN' || error.message === 'CANNOT_EDIT_SYSTEM_COACH') {
-          sendError(res, ErrorCodes.FORBIDDEN, 'You do not have permission to edit this coach', 403);
+          sendError(
+            res,
+            ErrorCodes.FORBIDDEN,
+            'You do not have permission to edit this coach',
+            403
+          );
           return;
         }
       }
@@ -242,7 +247,12 @@ export class CoachController {
           return;
         }
         if (error.message === 'FORBIDDEN' || error.message === 'CANNOT_DELETE_SYSTEM_COACH') {
-          sendError(res, ErrorCodes.FORBIDDEN, 'You do not have permission to delete this coach', 403);
+          sendError(
+            res,
+            ErrorCodes.FORBIDDEN,
+            'You do not have permission to delete this coach',
+            403
+          );
           return;
         }
       }
@@ -284,7 +294,12 @@ export class CoachController {
           return;
         }
         if (error.message === 'CANNOT_SHARE_WITH_SELF') {
-          sendError(res, ErrorCodes.VALIDATION_ERROR, 'You cannot share a coach with yourself', 400);
+          sendError(
+            res,
+            ErrorCodes.VALIDATION_ERROR,
+            'You cannot share a coach with yourself',
+            400
+          );
           return;
         }
       }
@@ -346,7 +361,12 @@ export class CoachController {
           return;
         }
         if (error.message === 'FORBIDDEN') {
-          sendError(res, ErrorCodes.FORBIDDEN, 'You do not have permission to revoke this share', 403);
+          sendError(
+            res,
+            ErrorCodes.FORBIDDEN,
+            'You do not have permission to revoke this share',
+            403
+          );
           return;
         }
       }

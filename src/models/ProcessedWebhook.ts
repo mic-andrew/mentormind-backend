@@ -36,10 +36,7 @@ const ProcessedWebhookSchema = new Schema<IProcessedWebhook>(
 );
 
 // Auto-delete processed webhooks after 30 days
-ProcessedWebhookSchema.index(
-  { processedAt: 1 },
-  { expireAfterSeconds: 30 * 24 * 60 * 60 }
-);
+ProcessedWebhookSchema.index({ processedAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
 
 export const ProcessedWebhook = mongoose.model<IProcessedWebhook>(
   'ProcessedWebhook',

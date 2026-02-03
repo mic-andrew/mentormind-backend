@@ -283,7 +283,9 @@ class SubscriptionService {
       }
     );
 
-    logger.info(`Subscription ${newStatus}: user ${userId}, reason: ${event.cancel_reason || event.expiration_reason}`);
+    logger.info(
+      `Subscription ${newStatus}: user ${userId}, reason: ${event.cancel_reason || event.expiration_reason}`
+    );
   }
 
   private async handleBillingIssue(event: WebhookEvent): Promise<void> {

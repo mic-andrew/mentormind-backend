@@ -23,13 +23,7 @@ export function validate<T extends z.ZodTypeAny>(schema: T) {
           details[path].push(err.message);
         });
 
-        sendError(
-          res,
-          ErrorCodes.VALIDATION_ERROR,
-          'Validation failed',
-          400,
-          details
-        );
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'Validation failed', 400, details);
         return;
       }
 

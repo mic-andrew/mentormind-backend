@@ -28,7 +28,7 @@ export async function checkCoachCreationLimit(
       return;
     }
     next();
-  } catch (error) {
+  } catch (_error) {
     sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to check subscription limits', 500);
   }
 }
@@ -53,7 +53,7 @@ export async function checkSessionLimit(
       return;
     }
     next();
-  } catch (error) {
+  } catch (_error) {
     sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to check subscription limits', 500);
   }
 }

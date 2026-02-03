@@ -16,7 +16,7 @@ class SubscriptionController {
     try {
       const status = await subscriptionService.getSubscriptionStatus(req.userId);
       sendSuccess(res, status);
-    } catch (error) {
+    } catch (_error) {
       sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to get subscription status', 500);
     }
   }
@@ -28,7 +28,7 @@ class SubscriptionController {
     try {
       const usage = await subscriptionService.getUsage(req.userId);
       sendSuccess(res, usage);
-    } catch (error) {
+    } catch (_error) {
       sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to get usage data', 500);
     }
   }
