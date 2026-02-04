@@ -292,13 +292,9 @@ class SessionController {
   async updateUserContext(req: Request, res: Response): Promise<void> {
     try {
       const { userId } = req as AuthenticatedRequest;
-      const { primaryGoals, coreValues, keyChallenges } = req.body;
+      const { personalContext } = req.body;
 
-      const result = await sessionService.updateUserContext(userId, {
-        primaryGoals,
-        coreValues,
-        keyChallenges,
-      });
+      const result = await sessionService.updateUserContext(userId, personalContext || '');
 
       sendSuccess(res, result);
     } catch (error) {

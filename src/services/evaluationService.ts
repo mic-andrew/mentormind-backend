@@ -362,6 +362,15 @@ Coach: ${context.coachName} (${context.coachSpecialty}, Category: ${context.coac
       evaluation.generationTimeMs = Date.now() - startTime;
       await evaluation.save();
 
+      // Backfill session summary from evaluation
+      try {
+        await VoiceSession.findByIdAndUpdate(session._id, {
+          summary: content.overallSummary,
+        });
+      } catch (backfillError) {
+        logger.warn(`Failed to backfill session summary for ${sessionId}:`, backfillError);
+      }
+
       logger.info(
         `Evaluation generated for session ${sessionId} in ${evaluation.generationTimeMs}ms`
       );

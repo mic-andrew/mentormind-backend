@@ -10,6 +10,24 @@ import { logger } from '../config/logger';
 
 export class AuthController {
   /**
+   * POST /api/auth/anonymous
+   */
+  async createAnonymousUser(req: Request, res: Response): Promise<void> {
+    try {
+      const { deviceId } = req.body;
+      if (!deviceId || typeof deviceId !== 'string') {
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'Device ID is required', 400);
+        return;
+      }
+      const result = await authService.createAnonymousUser(deviceId);
+      sendSuccess(res, result, 201);
+    } catch (error) {
+      logger.error('Anonymous user creation error:', error);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to create anonymous user', 500);
+    }
+  }
+
+  /**
    * POST /api/auth/register
    */
   async register(req: Request, res: Response): Promise<void> {
@@ -19,6 +37,10 @@ export class AuthController {
     } catch (error) {
       if (error instanceof Error && error.message === 'USER_EXISTS') {
         sendError(res, ErrorCodes.USER_EXISTS, 'An account with this email already exists', 409);
+        return;
+      }
+      if (error instanceof Error && error.message === 'INVALID_ANONYMOUS_USER') {
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'Invalid anonymous user', 400);
         return;
       }
       logger.error('Register error:', error);
@@ -359,7 +381,7 @@ export class AuthController {
    */
   async appleAuth(req: Request, res: Response): Promise<void> {
     try {
-      const { token, identityToken, fullName } = req.body;
+      const { token, identityToken, fullName, anonymousUserId } = req.body;
       const appleToken = token || identityToken;
 
       if (!appleToken) {
@@ -367,7 +389,7 @@ export class AuthController {
         return;
       }
 
-      const result = await authService.handleAppleAuth(appleToken, fullName);
+      const result = await authService.handleAppleAuth(appleToken, fullName, anonymousUserId);
       sendSuccess(res, result);
     } catch (error) {
       if (error instanceof Error && error.message === 'APPLE_AUTH_FAILED') {

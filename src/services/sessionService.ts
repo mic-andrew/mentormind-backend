@@ -75,8 +75,6 @@ class SessionService {
    * Build system instructions from coach and user context
    */
   private buildInstructions(coach: ICoach, user: IUser): string {
-    const userContext = user.context;
-
     let instructions = `# Your Identity
 ${coach.systemPrompt}
 
@@ -86,17 +84,8 @@ ${coach.systemPrompt}
 ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
 `;
 
-    if (userContext) {
-      instructions += '\n# User Context\n';
-      if (userContext.primaryGoals) {
-        instructions += `- Goals: ${userContext.primaryGoals}\n`;
-      }
-      if (userContext.coreValues) {
-        instructions += `- Values: ${userContext.coreValues}\n`;
-      }
-      if (userContext.keyChallenges?.length) {
-        instructions += `- Challenges: ${userContext.keyChallenges.join(', ')}\n`;
-      }
+    if (user.personalContext) {
+      instructions += `\n# User Context\n${user.personalContext}\n`;
     }
 
     instructions += `
@@ -474,19 +463,24 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
     session.durationMs = data.durationMs;
     await session.save();
 
-    // Generate title from first user utterance
+    // Generate title from coach name + first user utterance
     if (!session.title) {
+      const coach = await Coach.findById(session.coachId);
+      const coachName = coach?.name || 'Coach';
       const transcript = await Transcript.findOne({ sessionId: session._id });
       if (transcript) {
         const firstUserUtterance = transcript.utterances.find((u) => u.speakerId === 'user');
         if (firstUserUtterance) {
-          const title =
-            firstUserUtterance.content.substring(0, 50) +
-            (firstUserUtterance.content.length > 50 ? '...' : '');
-          session.title = title;
-          await session.save();
+          const topic = firstUserUtterance.content.substring(0, 40) +
+            (firstUserUtterance.content.length > 40 ? '...' : '');
+          session.title = `${coachName}: ${topic}`;
+        } else {
+          session.title = `Session with ${coachName}`;
         }
+      } else {
+        session.title = `Session with ${coachName}`;
       }
+      await session.save();
     }
 
     logger.info(
@@ -642,12 +636,9 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
   }
 
   /**
-   * Update user context
+   * Update user personal context
    */
-  async updateUserContext(
-    userId: string,
-    context: { primaryGoals?: string; coreValues?: string; keyChallenges?: string[] }
-  ) {
+  async updateUserContext(userId: string, personalContext: string) {
     if (!Types.ObjectId.isValid(userId)) {
       throw new Error('INVALID_USER_ID');
     }
@@ -657,23 +648,16 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
       throw new Error('USER_NOT_FOUND');
     }
 
-    user.context = {
-      ...user.context,
-      ...context,
-      updatedAt: new Date(),
-    };
-
+    user.personalContext = personalContext;
     await user.save();
 
-    logger.info(`User context updated: ${userId}`);
+    logger.info(`User personal context updated: ${userId}`);
 
-    return {
-      context: user.context,
-    };
+    return { personalContext: user.personalContext };
   }
 
   /**
-   * Get user context
+   * Get user personal context
    */
   async getUserContext(userId: string) {
     if (!Types.ObjectId.isValid(userId)) {
@@ -685,9 +669,7 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
       throw new Error('USER_NOT_FOUND');
     }
 
-    return {
-      context: user.context || {},
-    };
+    return { personalContext: user.personalContext || '' };
   }
 }
 
