@@ -17,6 +17,7 @@ export interface IUser extends Document {
   googleId?: string;
   appleId?: string;
   personalContext?: string;
+  language: string;
   isDeleted: boolean;
   deletedAt?: Date;
   deletionScheduledAt?: Date;
@@ -77,6 +78,11 @@ const UserSchema = new Schema<IUser>(
     personalContext: {
       type: String,
       maxlength: 5000,
+    },
+    language: {
+      type: String,
+      default: 'English',
+      maxlength: 50,
     },
     isDeleted: {
       type: Boolean,

@@ -28,6 +28,9 @@ router.put('/:id/transcript', authenticate, (req, res) =>
 );
 router.post('/:id/end', authenticate, (req, res) => sessionController.endSession(req, res));
 router.post('/:id/pause', authenticate, (req, res) => sessionController.pauseSession(req, res));
+router.post('/:id/extract-context', authenticate, (req, res) =>
+  sessionController.extractContext(req, res)
+);
 
 // Evaluation routes (more specific path first)
 router.post('/:id/evaluation/retry', authenticate, (req, res) =>

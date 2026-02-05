@@ -76,6 +76,7 @@ class AuthService {
       appleId: user.appleId,
       isAnonymous: user.isAnonymous || false,
       deviceId: user.deviceId,
+      language: user.language || 'English',
     };
   }
 

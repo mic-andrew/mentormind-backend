@@ -31,6 +31,8 @@ export interface ITranscriptUtterance {
 export interface ITranscript extends Document {
   _id: Types.ObjectId;
   sessionId: Types.ObjectId;
+  userId: Types.ObjectId;
+  coachId: Types.ObjectId;
   speakers: ITranscriptSpeaker[];
   utterances: ITranscriptUtterance[];
   metadata: {
@@ -76,6 +78,14 @@ const TranscriptSchema = new Schema<ITranscript>(
       required: true,
       unique: true,
     },
+    userId: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    coachId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Coach',
+    },
     speakers: { type: [TranscriptSpeakerSchema], default: [] },
     utterances: { type: [TranscriptUtteranceSchema], default: [] },
     metadata: {
@@ -91,5 +101,8 @@ const TranscriptSchema = new Schema<ITranscript>(
 
 // Fast lookup by session
 TranscriptSchema.index({ sessionId: 1 });
+// Multi-session history queries
+TranscriptSchema.index({ userId: 1, coachId: 1, createdAt: -1 });
+TranscriptSchema.index({ userId: 1, createdAt: -1 });
 
 export const Transcript = mongoose.model<ITranscript>('Transcript', TranscriptSchema);

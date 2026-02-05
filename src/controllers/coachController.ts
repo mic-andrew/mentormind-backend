@@ -7,6 +7,7 @@ import type { Request, Response } from 'express';
 import { coachService } from '../services/coachService';
 import { transcriptionService } from '../services/transcriptionService';
 import { aiExtractionService } from '../services/aiExtractionService';
+import { coachSuggestionService } from '../services/coachSuggestionService';
 import { sendSuccess, sendError, ErrorCodes } from '../utils/response';
 import type { AuthenticatedRequest } from '../middleware/auth';
 import { logger } from '../config/logger';
@@ -170,6 +171,50 @@ export class CoachController {
       }
       logger.error('Get coach for session error:', error);
       sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to fetch coach', 500);
+    }
+  }
+
+  /**
+   * POST /api/coaches/suggest
+   * Generate 3 AI coach suggestions based on user context
+   * Protected route
+   */
+  async suggestCoaches(req: Request, res: Response): Promise<void> {
+    try {
+      const { userId } = req as AuthenticatedRequest;
+      const { personalContext, coachPreferences } = req.body;
+      // Use placeholder for anonymous users (avatar matching won't filter by user)
+      const effectiveUserId = userId || 'anonymous';
+      logger.info(`[API] POST /coaches/suggest user=${effectiveUserId} contextLen=${personalContext?.length || 0}`);
+
+      if (!personalContext || typeof personalContext !== 'string') {
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'Personal context is required', 400);
+        return;
+      }
+
+      if (!coachPreferences) {
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'Coach preferences are required', 400);
+        return;
+      }
+
+      logger.info(`[API] suggest-coaches preferences: role=${coachPreferences.role} challenges=[${coachPreferences.challenges?.join(',')}]`);
+
+      const suggestions = await coachSuggestionService.suggestCoaches(
+        personalContext,
+        coachPreferences,
+        effectiveUserId
+      );
+
+      logger.info(`[API] suggest-coaches success: ${suggestions.length} coaches generated (${suggestions.map(s => s.name).join(', ')})`);
+      sendSuccess(res, { suggestions });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'OPENAI_API_ERROR') {
+        logger.warn(`[API] suggest-coaches failed: OPENAI_API_ERROR`);
+        sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to generate coach suggestions', 503);
+        return;
+      }
+      logger.error('Suggest coaches error:', error);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to suggest coaches', 500);
     }
   }
 

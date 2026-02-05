@@ -10,6 +10,11 @@ import { Coach, ICoach } from '../models/Coach';
 import { User, IUser } from '../models/User';
 import { logger } from '../config/logger';
 import { subscriptionService } from './subscriptionService';
+import { buildSessionInstructions } from '../prompts/sessionInstructions';
+import {
+  CONTEXT_EXTRACTION_SYSTEM_MESSAGE,
+  buildContextExtractionPrompt,
+} from '../prompts/contextExtraction';
 
 // Voice mapping based on coach tone
 const TONE_TO_VOICE: Record<string, string> = {
@@ -20,8 +25,25 @@ const TONE_TO_VOICE: Record<string, string> = {
   challenging: 'onyx',
 };
 
+// Language name to ISO 639-1 code mapping
+const LANGUAGE_TO_CODE: Record<string, string> = {
+  English: 'en', Spanish: 'es', French: 'fr', German: 'de',
+  Italian: 'it', Portuguese: 'pt', Japanese: 'ja', Korean: 'ko',
+  'Chinese (Mandarin)': 'zh', Dutch: 'nl', Russian: 'ru', Hindi: 'hi',
+  Arabic: 'ar', Turkish: 'tr', Polish: 'pl', Swedish: 'sv',
+  Norwegian: 'no', Danish: 'da', Finnish: 'fi', Czech: 'cs',
+  Romanian: 'ro', Ukrainian: 'uk', Vietnamese: 'vi', Thai: 'th',
+  Indonesian: 'id', Malay: 'ms', Greek: 'el', Hebrew: 'he',
+};
+
+function languageToCode(language?: string): string {
+  if (!language) return 'en';
+  return LANGUAGE_TO_CODE[language] || 'en';
+}
+
 interface StartSessionData {
   coachId: string;
+  type?: 'regular' | 'onboarding';
 }
 
 interface TranscriptUtteranceData {
@@ -74,30 +96,76 @@ class SessionService {
   /**
    * Build system instructions from coach and user context
    */
-  private buildInstructions(coach: ICoach, user: IUser): string {
-    let instructions = `# Your Identity
-${coach.systemPrompt}
+  private buildInstructions(coach: ICoach, user: IUser, sessionHistory: string = ''): string {
+    return buildSessionInstructions(coach, user, sessionHistory);
+  }
 
-# Communication Style
-- Tone: ${coach.tone || 'professional'}
-- Style: ${coach.coachingStyle?.join(', ') || 'Supportive'}
-${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
-`;
+  /**
+   * Build session history context for multi-session awareness.
+   * Queries last 5 ended sessions with the same coach and builds a markdown summary.
+   */
+  private async buildSessionHistoryContext(
+    userId: string,
+    coachId: string
+  ): Promise<string> {
+    logger.info(`[SessionHistory] Building history for user=${userId} coach=${coachId}`);
 
-    if (user.personalContext) {
-      instructions += `\n# User Context\n${user.personalContext}\n`;
+    const pastSessions = await VoiceSession.find({
+      userId: new Types.ObjectId(userId),
+      coachId: new Types.ObjectId(coachId),
+      status: 'ended',
+      type: { $ne: 'onboarding' },
+    })
+      .sort({ endedAt: -1 })
+      .limit(5)
+      .lean();
+
+    if (pastSessions.length === 0) {
+      logger.info('[SessionHistory] No past sessions found');
+      return '';
     }
 
-    instructions += `
-# Voice Guidelines
-- Keep responses to 2-3 sentences for natural conversation flow
-- Ask clarifying questions to understand the user's situation
-- End responses with a question to maintain dialogue when appropriate
-- Reference user's goals when relevant
-- Be encouraging but honest
-`;
+    logger.info(`[SessionHistory] Found ${pastSessions.length} past sessions`);
 
-    return instructions.trim();
+    let history = '# Past Session History\n';
+
+    for (const session of pastSessions) {
+      const dateStr = session.endedAt
+        ? new Date(session.endedAt).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          })
+        : 'Unknown date';
+      const durationMin = Math.round((session.durationMs || 0) / 60000);
+      history += `\n## Session from ${dateStr} (${durationMin} min)\n`;
+
+      if (session.summary) {
+        history += `${session.summary}\n`;
+      } else {
+        // Fallback: grab first 3 user utterances from transcript
+        const transcript = await Transcript.findOne({ sessionId: session._id });
+        if (transcript) {
+          const userUtterances = transcript.utterances
+            .filter((u) => u.speakerId === 'user')
+            .slice(0, 3)
+            .map((u) => `- "${u.content}"`)
+            .join('\n');
+          if (userUtterances) {
+            history += `User discussed:\n${userUtterances}\n`;
+          }
+        }
+      }
+    }
+
+    // Cap at ~1500 chars to stay within token budget
+    if (history.length > 1500) {
+      history = history.substring(0, 1500) + '\n[...earlier sessions truncated]';
+    }
+
+    logger.info(`[SessionHistory] Built history context (${history.length} chars)`);
+
+    return history;
   }
 
   /**
@@ -178,16 +246,21 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
    */
   async startSession(userId: string, data: StartSessionData) {
     const { coachId } = data;
+    logger.info(`[StartSession] user=${userId} coach=${coachId}`);
 
     if (!Types.ObjectId.isValid(coachId)) {
+      logger.warn(`[StartSession] Invalid coach ID: ${coachId}`);
       throw new Error('INVALID_COACH_ID');
     }
 
     // Get coach with system prompt
     const coach = await Coach.findById(coachId);
     if (!coach) {
+      logger.warn(`[StartSession] Coach not found: ${coachId}`);
       throw new Error('COACH_NOT_FOUND');
     }
+
+    logger.info(`[StartSession] Coach: ${coach.name} (tone=${coach.tone}, lang=${coach.language})`);
 
     // Check if coach is accessible (system coaches are always accessible)
     if (coach.createdBy !== 'system' && !coach.isPublished) {
@@ -204,10 +277,12 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
       throw new Error('USER_NOT_FOUND');
     }
 
-    // Check free tier session limit
-    const canStart = await subscriptionService.canStartSession(userId);
-    if (!canStart) {
-      throw new Error('SESSION_LIMIT_EXCEEDED');
+    // Check free tier session limit (skip for system coaches like the interviewer)
+    if (coach.createdBy !== 'system') {
+      const canStart = await subscriptionService.canStartSession(userId);
+      if (!canStart) {
+        throw new Error('SESSION_LIMIT_EXCEEDED');
+      }
     }
 
     // Check for existing active session and mark as abandoned
@@ -216,8 +291,11 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
       { status: 'abandoned', endedAt: new Date() }
     );
 
-    // Build instructions
-    const instructions = this.buildInstructions(coach, user);
+    // Build session history for multi-session awareness
+    const sessionHistory = await this.buildSessionHistoryContext(userId, coachId);
+
+    // Build instructions with history context
+    const instructions = this.buildInstructions(coach, user, sessionHistory);
     const voice = TONE_TO_VOICE[coach.tone || 'professional'] || 'alloy';
 
     // Get ephemeral token from OpenAI
@@ -233,6 +311,7 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
     const session = await VoiceSession.create({
       userId: new Types.ObjectId(userId),
       coachId: new Types.ObjectId(coachId),
+      type: data.type || 'regular',
       status: 'active',
       openaiSessionId: openaiSession.id,
       startedAt: new Date(),
@@ -241,9 +320,11 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
     // Create transcript document for this session
     const transcript = await Transcript.create({
       sessionId: session._id,
+      userId: new Types.ObjectId(userId),
+      coachId: new Types.ObjectId(coachId),
       speakers,
       utterances: [],
-      metadata: { totalUtterances: 0, language: 'en' },
+      metadata: { totalUtterances: 0, language: languageToCode(user.language) },
     });
 
     // Link transcript to session
@@ -329,8 +410,14 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
       throw new Error('USER_NOT_FOUND');
     }
 
-    // Build instructions and get new token
-    const instructions = this.buildInstructions(coach, user);
+    // Build session history for multi-session awareness
+    const sessionHistory = await this.buildSessionHistoryContext(
+      userId,
+      session.coachId.toString()
+    );
+
+    // Build instructions with history context and get new token
+    const instructions = this.buildInstructions(coach, user, sessionHistory);
     const voice = TONE_TO_VOICE[coach.tone || 'professional'] || 'alloy';
     const openaiSession = await this.getOpenAIEphemeralToken(instructions, voice);
 
@@ -376,6 +463,8 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
     if (!transcript) {
       transcript = await Transcript.create({
         sessionId: session._id,
+        userId: session.userId,
+        coachId: session.coachId,
         speakers: speakers || [],
         utterances: [],
         metadata: { totalUtterances: 0, language: 'en' },
@@ -579,6 +668,7 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
 
     const query: Record<string, unknown> = {
       userId: new Types.ObjectId(userId),
+      type: { $ne: 'onboarding' },
     };
 
     if (coachId && Types.ObjectId.isValid(coachId)) {
@@ -670,6 +760,128 @@ ${coach.methodology ? `- Methodology: ${coach.methodology}` : ''}
     }
 
     return { personalContext: user.personalContext || '' };
+  }
+
+  /**
+   * Extract personal context and coach preferences from an interview session transcript.
+   * Calls GPT-4o-mini to analyze the conversation and produce structured output.
+   */
+  async extractContextFromSession(sessionId: string, userId: string) {
+    logger.info(`[ExtractContext] Starting for session=${sessionId} user=${userId}`);
+
+    if (!Types.ObjectId.isValid(sessionId)) {
+      logger.warn(`[ExtractContext] Invalid session ID: ${sessionId}`);
+      throw new Error('INVALID_SESSION_ID');
+    }
+
+    const session = await VoiceSession.findOne({
+      _id: new Types.ObjectId(sessionId),
+      userId: new Types.ObjectId(userId),
+    });
+
+    if (!session) {
+      logger.warn(`[ExtractContext] Session not found: ${sessionId}`);
+      throw new Error('SESSION_NOT_FOUND');
+    }
+
+    // Fetch transcript
+    const transcript = await Transcript.findOne({ sessionId: session._id });
+    if (!transcript || transcript.utterances.length === 0) {
+      logger.warn(`[ExtractContext] No transcript data for session=${sessionId}, utterances=${transcript?.utterances.length ?? 0}`);
+      throw new Error('TRANSCRIPT_EMPTY');
+    }
+
+    logger.info(`[ExtractContext] Found ${transcript.utterances.length} utterances, extracting context...`);
+
+    // Format transcript as dialogue
+    const speakerNameMap = new Map(transcript.speakers.map((s) => [s.id, s.name]));
+    const formattedTranscript = transcript.utterances
+      .map((u) => {
+        const name = speakerNameMap.get(u.speakerId) || u.speakerId;
+        return `[${name}]: ${u.content}`;
+      })
+      .join('\n');
+
+    // Call GPT-4o-mini for context extraction
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (!openaiKey) {
+      throw new Error('OPENAI_API_KEY not configured');
+    }
+
+    const model = process.env.OPENAI_EVALUATION_MODEL || 'gpt-4o-mini';
+    const userPrompt = buildContextExtractionPrompt(formattedTranscript);
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${openaiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: CONTEXT_EXTRACTION_SYSTEM_MESSAGE },
+          { role: 'user', content: userPrompt },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.5,
+        max_tokens: 1024,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error('OpenAI context extraction error:', errorText);
+      throw new Error('OPENAI_API_ERROR');
+    }
+
+    const data = (await response.json()) as {
+      choices?: { message?: { content?: string | null } }[];
+    };
+    const content = data.choices?.[0]?.message?.content;
+
+    if (!content) {
+      logger.error('OpenAI returned empty content for context extraction');
+      throw new Error('OPENAI_API_ERROR');
+    }
+
+    let parsed: {
+      personalContext: string;
+      coachPreferences: {
+        preferredTone: string;
+        focusAreas: string[];
+        coachingStyles: string[];
+        experienceLevel: string;
+        suggestedCategories: string[];
+      };
+    };
+
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      logger.error('Failed to parse context extraction response:', content.substring(0, 200));
+      throw new Error('OPENAI_API_ERROR');
+    }
+
+    if (!parsed.personalContext || !parsed.coachPreferences) {
+      logger.error('[ExtractContext] Invalid response structure — missing personalContext or coachPreferences');
+      throw new Error('OPENAI_API_ERROR');
+    }
+
+    logger.info(`[ExtractContext] Extracted context (${parsed.personalContext.length} chars), preferences: tone=${parsed.coachPreferences.preferredTone}, areas=${parsed.coachPreferences.focusAreas.join(',')}`);
+
+    // Save personal context to user
+    const user = await User.findById(userId);
+    if (user) {
+      user.personalContext = parsed.personalContext;
+      await user.save();
+      logger.info(`[ExtractContext] Saved personalContext to user=${userId}`);
+    }
+
+    return {
+      personalContext: parsed.personalContext,
+      coachPreferences: parsed.coachPreferences,
+    };
   }
 }
 

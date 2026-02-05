@@ -7,8 +7,6 @@ import { Avatar, IAvatar } from '../models/Avatar';
 import { Coach } from '../models/Coach';
 import { Types } from 'mongoose';
 import { logger } from '../config/logger';
-import OpenAI from 'openai';
-import { env } from '../config/env';
 import type { CoachCategory } from '../models/Coach';
 
 interface PaginationOptions {
@@ -46,13 +44,6 @@ interface SanitizedAvatar {
 const REUSE_THRESHOLD = 10;
 
 class AvatarService {
-  private openai: OpenAI;
-
-  constructor() {
-    this.openai = new OpenAI({
-      apiKey: env.openaiApiKey,
-    });
-  }
 
   /**
    * Sanitize avatar for API response
@@ -168,8 +159,8 @@ class AvatarService {
   }
 
   /**
-   * Match avatars to coach description using LLM
-   * Returns top 5 matches ranked by relevance
+   * Match avatars to coach description using fast rule-based matching
+   * Returns top 5 matches ranked by relevance score
    */
   async matchAvatarToCoach(
     extractedData: {
@@ -185,131 +176,139 @@ class AvatarService {
     userId: string
   ): Promise<SanitizedAvatar[]> {
     try {
-      logger.info('[AvatarMatch] Starting avatar matching', {
+      logger.info('[AvatarMatch] Starting fast rule-based matching', {
         coachName: extractedData.name,
         category: extractedData.category,
-        tone: extractedData.tone,
         suggestedStyle: extractedData.suggestedAvatarStyle,
-        userId,
       });
 
-      const userObjectId = new Types.ObjectId(userId);
-      const coachCount = await this.getUserCoachCount(userId);
-      const canReuse = coachCount >= REUSE_THRESHOLD;
+      // For anonymous users, skip user-based filtering
+      const isAnonymous = userId === 'anonymous' || !Types.ObjectId.isValid(userId);
+      let avatars: IAvatar[];
 
-      logger.info('[AvatarMatch] User stats', { coachCount, canReuse, threshold: REUSE_THRESHOLD });
-
-      // Fetch available avatars for matching
-      const query: Record<string, unknown> = { isActive: true };
-      if (!canReuse) {
-        query.users = { $ne: userObjectId };
-      }
-
-      let avatars = await Avatar.find(query).limit(100);
-
-      logger.info('[AvatarMatch] Available avatars found', { count: avatars.length });
-
-      // Fallback: if no available avatars, use all
-      if (avatars.length === 0 && !canReuse) {
-        logger.warn('[AvatarMatch] No available avatars, falling back to all');
+      if (isAnonymous) {
+        // Anonymous users get all active avatars
         avatars = await Avatar.find({ isActive: true }).limit(100);
+      } else {
+        const userObjectId = new Types.ObjectId(userId);
+        const coachCount = await this.getUserCoachCount(userId);
+        const canReuse = coachCount >= REUSE_THRESHOLD;
+
+        // Fetch available avatars
+        const query: Record<string, unknown> = { isActive: true };
+        if (!canReuse) {
+          query.users = { $ne: userObjectId };
+        }
+
+        avatars = await Avatar.find(query).limit(100);
+
+        // Fallback: if no available avatars, use all
+        if (avatars.length === 0 && !canReuse) {
+          avatars = await Avatar.find({ isActive: true }).limit(100);
+        }
       }
 
       if (avatars.length === 0) {
-        logger.warn('[AvatarMatch] No avatars found at all in database');
         return [];
       }
 
-      // Build avatar list for LLM
-      const avatarList = avatars.map((a, i) => ({
-        index: i,
-        id: a._id.toString(),
-        name: a.name,
-        description: a.characteristicsDescription,
-        category: a.category,
-        gender: a.characteristics.gender,
-        ageRange: a.characteristics.ageRange,
-        style: a.characteristics.style,
-        vibe: a.characteristics.vibe,
-        tags: a.tags.join(', '),
-      }));
+      // Parse suggested style into keywords
+      const styleKeywords = this.parseStyleKeywords(extractedData.suggestedAvatarStyle || '');
+      const coachCategory = extractedData.category.toLowerCase();
 
-      const prompt = `You are an avatar matching assistant. Given a coach profile, select the 5 best matching avatars from the list below.
+      // Score each avatar
+      const scoredAvatars = avatars.map((avatar) => {
+        let score = 0;
 
-Coach Profile:
-- Name: ${extractedData.name}
-- Specialty: ${extractedData.specialty}
-- Category: ${extractedData.category}
-- Description: ${extractedData.description}
-- Bio: ${extractedData.bio}
-- Tone: ${extractedData.tone}
-- Coaching Style: ${extractedData.coachingStyle.join(', ')}
-${extractedData.suggestedAvatarStyle ? `- Suggested Avatar Style: ${extractedData.suggestedAvatarStyle}` : ''}
+        // Category match (highest weight)
+        if (avatar.category.toLowerCase() === coachCategory) {
+          score += 50;
+        }
 
-Available Avatars:
-${avatarList.map((a) => `[${a.index}] ${a.name} - ${a.description} (Category: ${a.category}, Gender: ${a.gender}, Age: ${a.ageRange}, Style: ${a.style}, Vibe: ${a.vibe}, Tags: ${a.tags})`).join('\n')}
+        // Gender match
+        if (styleKeywords.gender && avatar.characteristics.gender.toLowerCase() === styleKeywords.gender) {
+          score += 30;
+        }
 
-Return a JSON object with a "matches" array containing exactly 5 avatar indices (numbers) ranked from best to worst match. Consider the coach's category, tone, style, and overall personality when matching.
+        // Age range match
+        if (styleKeywords.ageRange && avatar.characteristics.ageRange.toLowerCase().includes(styleKeywords.ageRange)) {
+          score += 20;
+        }
 
-Example: {"matches": [3, 7, 12, 0, 45]}`;
+        // Style keywords match
+        const avatarDesc = `${avatar.characteristicsDescription} ${avatar.characteristics.style} ${avatar.characteristics.vibe} ${avatar.tags.join(' ')}`.toLowerCase();
+        for (const keyword of styleKeywords.keywords) {
+          if (avatarDesc.includes(keyword)) {
+            score += 10;
+          }
+        }
 
-      logger.info('[AvatarMatch] Calling OpenAI for matching...');
+        // Prefer avatars with lower usage (for variety)
+        if (avatar.activeUsersCount < 5) {
+          score += 5;
+        }
 
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You select the best matching avatar for AI coaches. Respond only with valid JSON.',
-          },
-          { role: 'user', content: prompt },
-        ],
-        temperature: 0.3,
-        response_format: { type: 'json_object' },
+        return { avatar, score };
       });
 
-      const responseText = completion.choices[0]?.message?.content;
-      if (!responseText) {
-        logger.error('[AvatarMatch] OpenAI returned empty response');
-        throw new Error('No response from OpenAI');
-      }
+      // Sort by score (descending) and take top 5
+      scoredAvatars.sort((a, b) => b.score - a.score);
+      const topMatches = scoredAvatars.slice(0, 5).map((s) => this.sanitizeAvatar(s.avatar));
 
-      logger.info('[AvatarMatch] OpenAI responded, parsing matches...');
-
-      const result = JSON.parse(responseText) as { matches: number[] };
-      const matchedIndices = result.matches.slice(0, 5);
-
-      logger.info('[AvatarMatch] Matched indices', { matchedIndices });
-
-      // Map indices to sanitized avatars
-      const matchedAvatars = matchedIndices
-        .filter((idx) => idx >= 0 && idx < avatars.length)
-        .map((idx) => this.sanitizeAvatar(avatars[idx]));
-
-      if (matchedAvatars.length === 0) {
-        logger.warn('[AvatarMatch] No valid matches, returning random 5');
-        return avatars.slice(0, 5).map((a) => this.sanitizeAvatar(a));
-      }
-
-      logger.info('[AvatarMatch] SUCCESS', {
-        matchCount: matchedAvatars.length,
-        matchedNames: matchedAvatars.map((a) => a.name),
-        matchedIds: matchedAvatars.map((a) => a.id),
+      logger.info('[AvatarMatch] Fast matching complete', {
+        matchCount: topMatches.length,
+        topScore: scoredAvatars[0]?.score,
       });
 
-      return matchedAvatars;
+      return topMatches;
     } catch (error) {
       logger.error('[AvatarMatch] Error:', {
         message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
       });
 
       // Fallback: return random available avatars
       const fallbackAvatars = await Avatar.find({ isActive: true }).limit(5);
-      logger.info('[AvatarMatch] Returning fallback avatars', { count: fallbackAvatars.length });
       return fallbackAvatars.map((a) => this.sanitizeAvatar(a));
     }
+  }
+
+  /**
+   * Parse suggested avatar style string into keywords for matching
+   */
+  private parseStyleKeywords(style: string): {
+    gender: string | null;
+    ageRange: string | null;
+    keywords: string[];
+  } {
+    const lowered = style.toLowerCase();
+
+    // Detect gender
+    let gender: string | null = null;
+    if (lowered.includes('female') || lowered.includes('woman')) {
+      gender = 'female';
+    } else if (lowered.includes('male') || lowered.includes('man')) {
+      gender = 'male';
+    }
+
+    // Detect age range
+    let ageRange: string | null = null;
+    if (lowered.includes('20s') || lowered.includes('young')) {
+      ageRange = '20s';
+    } else if (lowered.includes('30s')) {
+      ageRange = '30s';
+    } else if (lowered.includes('40s') || lowered.includes('middle')) {
+      ageRange = '40s';
+    } else if (lowered.includes('50s') || lowered.includes('mature') || lowered.includes('senior')) {
+      ageRange = '50s';
+    }
+
+    // Extract other keywords
+    const keywords = lowered
+      .split(/[\s,]+/)
+      .filter((w) => w.length > 3)
+      .filter((w) => !['male', 'female', 'woman', 'man', 'with', 'and', 'the'].includes(w));
+
+    return { gender, ageRange, keywords };
   }
 
   /**
