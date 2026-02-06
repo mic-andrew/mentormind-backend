@@ -4,24 +4,19 @@
 
 import mongoose, { Schema, Document } from 'mongoose';
 
-export interface IUserContext {
-  primaryGoals?: string;
-  coreValues?: string;
-  keyChallenges?: string[];
-  updatedAt?: Date;
-}
-
 export interface IUser extends Document {
-  email: string;
+  email?: string;
   firstName?: string;
   lastName?: string;
   password?: string;
   picture?: string;
   emailVerified: boolean;
   isOnboarded: boolean;
+  deviceId?: string;
+  isAnonymous: boolean;
   googleId?: string;
   appleId?: string;
-  context?: IUserContext;
+  personalContext?: string;
   isDeleted: boolean;
   deletedAt?: Date;
   deletionScheduledAt?: Date;
@@ -33,10 +28,19 @@ const UserSchema = new Schema<IUser>(
   {
     email: {
       type: String,
-      required: true,
       unique: true,
+      sparse: true,
       lowercase: true,
       trim: true,
+    },
+    deviceId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+    isAnonymous: {
+      type: Boolean,
+      default: false,
     },
     firstName: {
       type: String,
@@ -70,24 +74,9 @@ const UserSchema = new Schema<IUser>(
       unique: true,
       sparse: true,
     },
-    context: {
-      primaryGoals: {
-        type: String,
-        maxlength: 1000,
-      },
-      coreValues: {
-        type: String,
-        maxlength: 500,
-      },
-      keyChallenges: [
-        {
-          type: String,
-          maxlength: 200,
-        },
-      ],
-      updatedAt: {
-        type: Date,
-      },
+    personalContext: {
+      type: String,
+      maxlength: 5000,
     },
     isDeleted: {
       type: Boolean,

@@ -66,4 +66,8 @@ router.delete('/:id/shares/:shareId', authenticate, (req, res) =>
   coachController.revokeShare(req, res)
 );
 
+// Review routes (nested under coaches/:coachId/reviews)
+import reviewRoutes from './reviewRoutes';
+router.use('/:coachId/reviews', reviewRoutes);
+
 export default router;

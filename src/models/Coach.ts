@@ -77,6 +77,7 @@ export interface ICoach extends Document {
   // Social & Metadata
   rating: number;
   sessionsCount: number;
+  reviewCount: number;
   isVerified: boolean;
   isAI: boolean;
   isPublished: boolean;
@@ -202,6 +203,11 @@ const CoachSchema = new Schema<ICoach>(
       max: 5,
     },
     sessionsCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    reviewCount: {
       type: Number,
       default: 0,
       min: 0,

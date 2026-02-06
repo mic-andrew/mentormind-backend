@@ -207,3 +207,146 @@ export function passwordChangedTemplate(data: { firstName: string }): string {
     </p>
   `);
 }
+
+/**
+ * Coach preview card block for sharing emails
+ */
+function coachCard(data: {
+  coachName: string;
+  coachSpecialty: string;
+  coachBio: string;
+  coachAvatar: string;
+}): string {
+  const truncatedBio =
+    data.coachBio.length > 120
+      ? data.coachBio.substring(0, 120) + '...'
+      : data.coachBio;
+
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: ${colors.input}; border-radius: 12px; margin-bottom: 24px;">
+    <tr>
+      <td style="padding: 20px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+          <tr>
+            <td style="width: 64px; vertical-align: top;">
+              <img src="${data.coachAvatar}" alt="${data.coachName}" width="64" height="64" style="border-radius: 50%; display: block; object-fit: cover;" />
+            </td>
+            <td style="padding-left: 16px; vertical-align: top;">
+              <p style="color: ${colors.foreground}; font-size: 16px; font-weight: 700; margin: 0 0 2px 0;">
+                ${data.coachName}
+              </p>
+              <p style="color: ${colors.primary}; font-size: 13px; font-weight: 600; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 0.5px;">
+                ${data.coachSpecialty}
+              </p>
+              <p style="color: ${colors.muted}; font-size: 13px; margin: 0; line-height: 1.5;">
+                ${truncatedBio}
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>`;
+}
+
+/**
+ * Permission level label for sharing emails
+ */
+function permissionLabel(permission: string): string {
+  switch (permission) {
+    case 'edit':
+      return 'Can modify this coach';
+    case 'use':
+      return 'Can start sessions';
+    case 'view':
+    default:
+      return 'Can view coach details';
+  }
+}
+
+/**
+ * Coach invitation email template (for non-registered users)
+ */
+export function coachInvitationTemplate(data: {
+  senderName: string;
+  senderEmail: string;
+  coachName: string;
+  coachSpecialty: string;
+  coachBio: string;
+  coachAvatar: string;
+  acceptUrl: string;
+}): string {
+  return baseLayout(`
+    <div style="text-align: center; margin-bottom: 24px;">
+      <div style="width: 56px; height: 56px; background-color: #eff6ff; border-radius: 50%; display: inline-block; line-height: 56px;">
+        <span style="font-size: 28px;">&#127873;</span>
+      </div>
+    </div>
+    <h1 style="color: ${colors.foreground}; font-size: 22px; font-weight: 700; margin: 0 0 8px 0; text-align: center;">
+      ${data.senderName} shared a coach with you
+    </h1>
+    <p style="color: ${colors.muted}; font-size: 15px; margin: 0 0 28px 0; text-align: center; line-height: 1.5;">
+      You've been invited to try an AI coach on MentorMind.
+    </p>
+    ${coachCard(data)}
+    <div style="background-color: #eff6ff; border-radius: 10px; padding: 12px 16px; margin-bottom: 24px; border: 1px solid #bfdbfe;">
+      <p style="color: ${colors.primary}; font-size: 13px; font-weight: 600; margin: 0; text-align: center;">
+        &#128274;&nbsp; ${permissionLabel('use')}
+      </p>
+    </div>
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+      <tr>
+        <td align="center">
+          <a href="${data.acceptUrl}" style="display: inline-block; background-color: ${colors.primary}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; padding: 14px 36px; border-radius: 10px;">
+            Join MentorMind
+          </a>
+        </td>
+      </tr>
+    </table>
+    <p style="color: ${colors.muted}; font-size: 13px; margin: 16px 0 0 0; text-align: center; line-height: 1.5;">
+      Create a free account to access this AI coach.
+    </p>
+  `);
+}
+
+/**
+ * Coach share notification email template (for existing users)
+ */
+export function coachShareNotificationTemplate(data: {
+  recipientName: string;
+  senderName: string;
+  coachName: string;
+  coachSpecialty: string;
+  coachBio: string;
+  coachAvatar: string;
+  permissionLevel: string;
+  coachUrl: string;
+}): string {
+  return baseLayout(`
+    <div style="text-align: center; margin-bottom: 24px;">
+      <div style="width: 56px; height: 56px; background-color: #eff6ff; border-radius: 50%; display: inline-block; line-height: 56px;">
+        <span style="font-size: 28px;">&#129309;</span>
+      </div>
+    </div>
+    <h1 style="color: ${colors.foreground}; font-size: 22px; font-weight: 700; margin: 0 0 8px 0; text-align: center;">
+      ${data.senderName} shared a coach with you
+    </h1>
+    <p style="color: ${colors.muted}; font-size: 15px; margin: 0 0 28px 0; text-align: center; line-height: 1.5;">
+      Hi ${data.recipientName}, you now have access to a new AI coach.
+    </p>
+    ${coachCard(data)}
+    <div style="background-color: #eff6ff; border-radius: 10px; padding: 12px 16px; margin-bottom: 24px; border: 1px solid #bfdbfe;">
+      <p style="color: ${colors.primary}; font-size: 13px; font-weight: 600; margin: 0; text-align: center;">
+        &#128274;&nbsp; ${permissionLabel(data.permissionLevel)}
+      </p>
+    </div>
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+      <tr>
+        <td align="center">
+          <a href="${data.coachUrl}" style="display: inline-block; background-color: ${colors.primary}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; padding: 14px 36px; border-radius: 10px;">
+            View Coach
+          </a>
+        </td>
+      </tr>
+    </table>
+  `);
+}

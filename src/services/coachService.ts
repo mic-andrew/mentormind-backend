@@ -95,6 +95,7 @@ class CoachService {
       conversationStarters: coach.conversationStarters,
       rating: coach.rating,
       sessionsCount: coach.sessionsCount,
+      reviewCount: coach.reviewCount,
       isVerified: coach.isVerified,
       isAI: coach.isAI,
       isPublished: coach.isPublished,
@@ -130,6 +131,7 @@ class CoachService {
       sampleTopics: coach.sampleTopics,
       rating: coach.rating,
       sessionsCount: coach.sessionsCount,
+      reviewCount: coach.reviewCount,
       isVerified: coach.isVerified,
       isAI: coach.isAI,
       isFeatured: coach.isFeatured,
@@ -897,29 +899,6 @@ class CoachService {
       $inc: { activeUsersCount: 1 },
       lastUsedAt: new Date(),
     });
-  }
-
-  /**
-   * Update coach rating (called after review)
-   */
-  async updateRating(coachId: string, newRating: number) {
-    if (!Types.ObjectId.isValid(coachId)) {
-      throw new Error('INVALID_COACH_ID');
-    }
-
-    const coach = await Coach.findById(coachId);
-    if (!coach) {
-      throw new Error('COACH_NOT_FOUND');
-    }
-
-    const totalSessions = coach.sessionsCount || 1;
-    const currentTotal = coach.rating * totalSessions;
-    const newAverage = (currentTotal + newRating) / (totalSessions + 1);
-
-    coach.rating = Math.round(newAverage * 10) / 10;
-    await coach.save();
-
-    return coach.rating;
   }
 
   /**

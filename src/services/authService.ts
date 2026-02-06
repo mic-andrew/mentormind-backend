@@ -27,6 +27,7 @@ interface RegisterData {
   password: string;
   firstName: string;
   lastName: string;
+  anonymousUserId?: string;
 }
 
 interface LoginData {
@@ -70,14 +71,84 @@ class AuthService {
       lastName: user.lastName,
       picture: user.picture,
       emailVerified: user.emailVerified,
-      password: user.password ? 'set' : undefined, // Don't send actual password, just indicate if it exists
+      password: user.password ? 'set' : undefined,
       googleId: user.googleId,
       appleId: user.appleId,
+      isAnonymous: user.isAnonymous || false,
+      deviceId: user.deviceId,
+    };
+  }
+
+  async createAnonymousUser(deviceId: string) {
+    let user = await User.findOne({ deviceId, isAnonymous: true, isDeleted: false });
+
+    if (user) {
+      const tokens = await this.generateTokens(user._id.toString(), deviceId);
+      return { user: this.sanitizeUser(user), tokens, isExisting: true };
+    }
+
+    user = await User.create({
+      deviceId,
+      isAnonymous: true,
+      emailVerified: false,
+      isOnboarded: false,
+    });
+
+    const tokens = await this.generateTokens(user._id.toString(), deviceId);
+    return { user: this.sanitizeUser(user), tokens, isExisting: false };
+  }
+
+  async upgradeAnonymousUser(anonymousUserId: string, data: Omit<RegisterData, 'anonymousUserId'>) {
+    const { email, password, firstName, lastName } = data;
+
+    const user = await User.findById(anonymousUserId);
+    if (!user || !user.isAnonymous) {
+      throw new Error('INVALID_ANONYMOUS_USER');
+    }
+
+    const existingUser = await User.findOne({
+      email: email.toLowerCase(),
+      _id: { $ne: user._id },
+    });
+    if (existingUser) {
+      throw new Error('USER_EXISTS');
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    user.email = email.toLowerCase();
+    user.password = hashedPassword;
+    user.firstName = firstName;
+    user.lastName = lastName;
+    user.isAnonymous = false;
+    await user.save();
+
+    const otp = generateOTP();
+    const otpExpiry = getOTPExpiry();
+
+    await OTPCode.create({
+      userId: user._id,
+      code: otp,
+      expiresAt: otpExpiry,
+      type: 'registration',
+      verified: false,
+    });
+
+    emailService
+      .sendOTPVerification(email.toLowerCase(), otp, firstName)
+      .catch((err) => logger.error('Failed to send verification email:', err));
+
+    return {
+      message: 'Account upgraded. Please verify your email with the OTP sent.',
+      retryAfter: OTP_RESEND_COOLDOWN_SECONDS,
     };
   }
 
   async register(data: RegisterData) {
-    const { email, password, firstName, lastName } = data;
+    const { email, password, firstName, lastName, anonymousUserId } = data;
+
+    if (anonymousUserId) {
+      return this.upgradeAnonymousUser(anonymousUserId, { email, password, firstName, lastName });
+    }
 
     const existingUser = await User.findOne({ email: email.toLowerCase() });
     if (existingUser) {
@@ -606,7 +677,8 @@ class AuthService {
   // Apple OAuth (Client-driven flow)
   async handleAppleAuth(
     token: string,
-    fullName?: { firstName?: string; lastName?: string }
+    fullName?: { firstName?: string; lastName?: string },
+    anonymousUserId?: string
   ): Promise<{ user: any; tokens: AuthTokens }> {
     try {
       // Verify Apple token
@@ -622,26 +694,43 @@ class AuthService {
       let user = await User.findOne({ appleId });
 
       if (!user) {
-        user = await User.findOne({ email: email?.toLowerCase() });
+        // Check if we should upgrade an anonymous user
+        if (anonymousUserId) {
+          const anonUser = await User.findById(anonymousUserId);
+          if (anonUser && anonUser.isAnonymous) {
+            anonUser.email = email?.toLowerCase();
+            anonUser.appleId = appleId;
+            anonUser.firstName = fullName?.firstName || '';
+            anonUser.lastName = fullName?.lastName || '';
+            anonUser.emailVerified = true;
+            anonUser.isAnonymous = false;
+            await anonUser.save();
+            user = anonUser;
+          }
+        }
 
-        if (user) {
-          // Link Apple account to existing user
-          user.appleId = appleId;
-          await user.save();
-        } else {
-          // Create new user (Apple only provides name on first sign in)
-          user = await User.create({
-            email: email?.toLowerCase(),
-            appleId,
-            firstName: fullName?.firstName || '',
-            lastName: fullName?.lastName || '',
-            emailVerified: true, // Apple verifies emails
-          });
+        if (!user) {
+          user = await User.findOne({ email: email?.toLowerCase() });
+
+          if (user) {
+            // Link Apple account to existing user
+            user.appleId = appleId;
+            await user.save();
+          } else {
+            // Create new user (Apple only provides name on first sign in)
+            user = await User.create({
+              email: email?.toLowerCase(),
+              appleId,
+              firstName: fullName?.firstName || '',
+              lastName: fullName?.lastName || '',
+              emailVerified: true, // Apple verifies emails
+            });
+          }
         }
       }
 
       // Generate tokens
-      const tokens = await this.generateTokens(user._id.toString(), user.email);
+      const tokens = await this.generateTokens(user._id.toString(), user.email || user.deviceId || '');
 
       return {
         user: this.sanitizeUser(user),
