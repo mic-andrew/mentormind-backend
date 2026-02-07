@@ -63,6 +63,23 @@ interface RecentInsight {
 interface PerformanceScore {
   name: string;
   score: number;
+  category: string;
+  description: string;
+  nextLevelAdvice: string;
+}
+
+interface DashboardTip {
+  title: string;
+  doAdvice: string;
+  dontAdvice: string;
+  evidence: string;
+}
+
+interface DashboardResource {
+  type: string;
+  title: string;
+  author: string;
+  reasoning: string;
 }
 
 export interface DashboardData {
@@ -73,6 +90,8 @@ export interface DashboardData {
   recentInsights: RecentInsight[];
   weeklyActivity: number[];
   performanceScores: PerformanceScore[];
+  tips: DashboardTip[];
+  resources: DashboardResource[];
 }
 
 // --- Service ---
@@ -195,12 +214,36 @@ class DashboardService {
     // Weekly activity: sessions per day for last 7 days (Mon→Sun)
     const weeklyActivity = await this.getWeeklyActivity(userObjectId);
 
-    // Performance scores from latest evaluation
+    // Performance scores, tips, and resources from latest evaluation
     const performanceScores: PerformanceScore[] = [];
+    const tips: DashboardTip[] = [];
+    const resources: DashboardResource[] = [];
     if (evaluationsWithCommitments.length > 0) {
       const latestEval = evaluationsWithCommitments[0];
       for (const score of latestEval.performanceScores || []) {
-        performanceScores.push({ name: score.name, score: score.score });
+        performanceScores.push({
+          name: score.name,
+          score: score.score,
+          category: score.category,
+          description: score.description,
+          nextLevelAdvice: score.nextLevelAdvice,
+        });
+      }
+      for (const tip of (latestEval.tips || []).slice(0, 5)) {
+        tips.push({
+          title: tip.title,
+          doAdvice: tip.doAdvice,
+          dontAdvice: tip.dontAdvice,
+          evidence: tip.evidence,
+        });
+      }
+      for (const resource of (latestEval.resources || []).slice(0, 5)) {
+        resources.push({
+          type: resource.type,
+          title: resource.title,
+          author: resource.author,
+          reasoning: resource.reasoning,
+        });
       }
     }
 
@@ -228,6 +271,8 @@ class DashboardService {
       recentInsights,
       weeklyActivity,
       performanceScores,
+      tips,
+      resources,
     };
   }
 

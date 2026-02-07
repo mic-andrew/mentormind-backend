@@ -239,7 +239,7 @@ class EngagementService {
         ],
         response_format: { type: 'json_object' },
         temperature: 0.8,
-        max_tokens: 200,
+        max_tokens: 150,
       });
 
       const content = completion.choices[0]?.message?.content;
@@ -268,7 +268,7 @@ class EngagementService {
         ],
         response_format: { type: 'json_object' },
         temperature: 0.8,
-        max_tokens: 150,
+        max_tokens: 80,
       });
 
       const content = completion.choices[0]?.message?.content;
