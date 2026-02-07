@@ -22,13 +22,7 @@ export const CoachCategories = [
 export type CoachCategory = (typeof CoachCategories)[number];
 
 // Coach tone enum
-export const CoachTones = [
-  'professional',
-  'casual',
-  'warm',
-  'direct',
-  'challenging',
-] as const;
+export const CoachTones = ['professional', 'casual', 'warm', 'direct', 'challenging'] as const;
 
 export type CoachTone = (typeof CoachTones)[number];
 
@@ -83,6 +77,7 @@ export interface ICoach extends Document {
   // Social & Metadata
   rating: number;
   sessionsCount: number;
+  reviewCount: number;
   isVerified: boolean;
   isAI: boolean;
   isPublished: boolean;
@@ -208,6 +203,11 @@ const CoachSchema = new Schema<ICoach>(
       max: 5,
     },
     sessionsCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    reviewCount: {
       type: Number,
       default: 0,
       min: 0,

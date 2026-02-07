@@ -20,13 +20,14 @@ import { env } from '../config/env';
 
 const JWT_SECRET: string = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const JWT_EXPIRES_IN: string | number = process.env.JWT_EXPIRES_IN || '1h';
-const JWT_REFRESH_EXPIRES_IN: string | number = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
+const _JWT_REFRESH_EXPIRES_IN: string | number = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 
 interface RegisterData {
   email: string;
   password: string;
   firstName: string;
   lastName: string;
+  anonymousUserId?: string;
 }
 
 interface LoginData {
@@ -41,11 +42,9 @@ interface AuthTokens {
 
 class AuthService {
   private async generateTokens(userId: string, email: string): Promise<AuthTokens> {
-    const accessToken = jwt.sign(
-      { userId, email },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN } as jwt.SignOptions
-    );
+    const accessToken = jwt.sign({ userId, email }, JWT_SECRET, {
+      expiresIn: JWT_EXPIRES_IN,
+    } as jwt.SignOptions);
 
     const refreshTokenString = crypto.randomBytes(64).toString('hex');
     const refreshTokenExpiry = new Date();
@@ -72,14 +71,85 @@ class AuthService {
       lastName: user.lastName,
       picture: user.picture,
       emailVerified: user.emailVerified,
-      password: user.password ? 'set' : undefined, // Don't send actual password, just indicate if it exists
+      password: user.password ? 'set' : undefined,
       googleId: user.googleId,
       appleId: user.appleId,
+      isAnonymous: user.isAnonymous || false,
+      deviceId: user.deviceId,
+      language: user.language || 'English',
+    };
+  }
+
+  async createAnonymousUser(deviceId: string) {
+    let user = await User.findOne({ deviceId, isAnonymous: true, isDeleted: false });
+
+    if (user) {
+      const tokens = await this.generateTokens(user._id.toString(), deviceId);
+      return { user: this.sanitizeUser(user), tokens, isExisting: true };
+    }
+
+    user = await User.create({
+      deviceId,
+      isAnonymous: true,
+      emailVerified: false,
+      isOnboarded: false,
+    });
+
+    const tokens = await this.generateTokens(user._id.toString(), deviceId);
+    return { user: this.sanitizeUser(user), tokens, isExisting: false };
+  }
+
+  async upgradeAnonymousUser(anonymousUserId: string, data: Omit<RegisterData, 'anonymousUserId'>) {
+    const { email, password, firstName, lastName } = data;
+
+    const user = await User.findById(anonymousUserId);
+    if (!user || !user.isAnonymous) {
+      throw new Error('INVALID_ANONYMOUS_USER');
+    }
+
+    const existingUser = await User.findOne({
+      email: email.toLowerCase(),
+      _id: { $ne: user._id },
+    });
+    if (existingUser) {
+      throw new Error('USER_EXISTS');
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    user.email = email.toLowerCase();
+    user.password = hashedPassword;
+    user.firstName = firstName;
+    user.lastName = lastName;
+    user.isAnonymous = false;
+    await user.save();
+
+    const otp = generateOTP();
+    const otpExpiry = getOTPExpiry();
+
+    await OTPCode.create({
+      userId: user._id,
+      code: otp,
+      expiresAt: otpExpiry,
+      type: 'registration',
+      verified: false,
+    });
+
+    emailService
+      .sendOTPVerification(email.toLowerCase(), otp, firstName)
+      .catch((err) => logger.error('Failed to send verification email:', err));
+
+    return {
+      message: 'Account upgraded. Please verify your email with the OTP sent.',
+      retryAfter: OTP_RESEND_COOLDOWN_SECONDS,
     };
   }
 
   async register(data: RegisterData) {
-    const { email, password, firstName, lastName } = data;
+    const { email, password, firstName, lastName, anonymousUserId } = data;
+
+    if (anonymousUserId) {
+      return this.upgradeAnonymousUser(anonymousUserId, { email, password, firstName, lastName });
+    }
 
     const existingUser = await User.findOne({ email: email.toLowerCase() });
     if (existingUser) {
@@ -107,7 +177,9 @@ class AuthService {
       verified: false,
     });
 
-    emailService.sendOTPVerification(email.toLowerCase(), otp, firstName).catch((err) => logger.error('Failed to send verification email:', err));
+    emailService
+      .sendOTPVerification(email.toLowerCase(), otp, firstName)
+      .catch((err) => logger.error('Failed to send verification email:', err));
 
     return {
       message: 'Registration successful. Please verify your email with the OTP sent.',
@@ -167,7 +239,10 @@ class AuthService {
   async forgotPassword(email: string) {
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
-      return { message: 'If the email exists, an OTP has been sent.', retryAfter: OTP_RESEND_COOLDOWN_SECONDS };
+      return {
+        message: 'If the email exists, an OTP has been sent.',
+        retryAfter: OTP_RESEND_COOLDOWN_SECONDS,
+      };
     }
 
     const otp = generateOTP();
@@ -181,7 +256,9 @@ class AuthService {
       verified: false,
     });
 
-    emailService.sendPasswordResetOTP(user.email, otp, user.firstName || 'there').catch((err) => logger.error('Failed to send password reset email:', err));
+    emailService
+      .sendPasswordResetOTP(user.email, otp, user.firstName || 'there')
+      .catch((err) => logger.error('Failed to send password reset email:', err));
 
     return {
       message: 'If the email exists, an OTP has been sent.',
@@ -215,9 +292,9 @@ class AuthService {
 
       const tokens = await this.generateTokens(user._id.toString(), user.email);
 
-      emailService.sendWelcome(user.email, user.firstName || 'there').catch((err) =>
-        logger.error('Failed to send welcome email:', err)
-      );
+      emailService
+        .sendWelcome(user.email, user.firstName || 'there')
+        .catch((err) => logger.error('Failed to send welcome email:', err));
 
       return {
         message: 'Email verified successfully',
@@ -246,7 +323,10 @@ class AuthService {
   async resendOTP(email: string) {
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
-      return { message: 'If the email exists, a new OTP has been sent.', retryAfter: OTP_RESEND_COOLDOWN_SECONDS };
+      return {
+        message: 'If the email exists, a new OTP has been sent.',
+        retryAfter: OTP_RESEND_COOLDOWN_SECONDS,
+      };
     }
 
     // Enforce cooldown between resends
@@ -259,10 +339,7 @@ class AuthService {
       }
     }
 
-    await OTPCode.updateMany(
-      { userId: user._id, verified: false },
-      { verified: true }
-    );
+    await OTPCode.updateMany({ userId: user._id, verified: false }, { verified: true });
 
     const otp = generateOTP();
     const otpExpiry = getOTPExpiry();
@@ -277,9 +354,10 @@ class AuthService {
       verified: false,
     });
 
-    const emailPromise = type === 'password-reset'
-      ? emailService.sendPasswordResetOTP(user.email, otp, user.firstName || 'there')
-      : emailService.sendOTPVerification(user.email, otp, user.firstName || 'there');
+    const emailPromise =
+      type === 'password-reset'
+        ? emailService.sendPasswordResetOTP(user.email, otp, user.firstName || 'there')
+        : emailService.sendOTPVerification(user.email, otp, user.firstName || 'there');
     emailPromise.catch((err) => logger.error('Failed to send OTP email:', err));
 
     return {
@@ -311,9 +389,9 @@ class AuthService {
     tokenRecord.used = true;
     await tokenRecord.save();
 
-    emailService.sendPasswordChanged(user.email, user.firstName || 'there').catch((err) =>
-      logger.error('Failed to send password changed email:', err)
-    );
+    emailService
+      .sendPasswordChanged(user.email, user.firstName || 'there')
+      .catch((err) => logger.error('Failed to send password changed email:', err));
 
     return {
       message: 'Password reset successfully',
@@ -394,11 +472,13 @@ class AuthService {
     user.password = hashedPassword;
     await user.save();
 
-    const message = user.password ? 'Password updated successfully' : 'Password created successfully';
+    const message = user.password
+      ? 'Password updated successfully'
+      : 'Password created successfully';
 
-    emailService.sendPasswordChanged(user.email, user.firstName || 'there').catch((err) =>
-      logger.error('Failed to send password changed email:', err)
-    );
+    emailService
+      .sendPasswordChanged(user.email, user.firstName || 'there')
+      .catch((err) => logger.error('Failed to send password changed email:', err));
 
     return {
       message,
@@ -423,9 +503,10 @@ class AuthService {
     await user.save();
 
     // TODO: Send email notification about scheduled deletion
-    emailService.sendAccountDeletionScheduled?.(user.email, user.firstName || 'there', deletionDate).catch((err) =>
-      logger.error('Failed to send deletion scheduled email:', err)
-    );
+    // TODO: Implement sendAccountDeletionScheduled in emailService
+    // emailService
+    //   .sendAccountDeletionScheduled(user.email, user.firstName || 'there', deletionDate)
+    //   .catch((err: unknown) => logger.error('Failed to send deletion scheduled email:', err));
 
     return {
       message: 'Account deletion scheduled',
@@ -452,10 +533,7 @@ class AuthService {
   }
 
   async logout(userId: string) {
-    await RefreshToken.updateMany(
-      { userId, revoked: false },
-      { revoked: true }
-    );
+    await RefreshToken.updateMany({ userId, revoked: false }, { revoked: true });
 
     return {
       message: 'Logged out successfully',
@@ -482,7 +560,10 @@ class AuthService {
     return authUrl;
   }
 
-  async handleGoogleCallback(code: string, state: string): Promise<{ sessionId: string; redirectUri: string }> {
+  async handleGoogleCallback(
+    code: string,
+    state: string
+  ): Promise<{ sessionId: string; redirectUri: string }> {
     try {
       const oauth2Client = new OAuth2Client(
         env.googleClientId,
@@ -597,7 +678,8 @@ class AuthService {
   // Apple OAuth (Client-driven flow)
   async handleAppleAuth(
     token: string,
-    fullName?: { firstName?: string; lastName?: string }
+    fullName?: { firstName?: string; lastName?: string },
+    anonymousUserId?: string
   ): Promise<{ user: any; tokens: AuthTokens }> {
     try {
       // Verify Apple token
@@ -613,26 +695,43 @@ class AuthService {
       let user = await User.findOne({ appleId });
 
       if (!user) {
-        user = await User.findOne({ email: email?.toLowerCase() });
+        // Check if we should upgrade an anonymous user
+        if (anonymousUserId) {
+          const anonUser = await User.findById(anonymousUserId);
+          if (anonUser && anonUser.isAnonymous) {
+            anonUser.email = email?.toLowerCase();
+            anonUser.appleId = appleId;
+            anonUser.firstName = fullName?.firstName || '';
+            anonUser.lastName = fullName?.lastName || '';
+            anonUser.emailVerified = true;
+            anonUser.isAnonymous = false;
+            await anonUser.save();
+            user = anonUser;
+          }
+        }
 
-        if (user) {
-          // Link Apple account to existing user
-          user.appleId = appleId;
-          await user.save();
-        } else {
-          // Create new user (Apple only provides name on first sign in)
-          user = await User.create({
-            email: email?.toLowerCase(),
-            appleId,
-            firstName: fullName?.firstName || '',
-            lastName: fullName?.lastName || '',
-            emailVerified: true, // Apple verifies emails
-          });
+        if (!user) {
+          user = await User.findOne({ email: email?.toLowerCase() });
+
+          if (user) {
+            // Link Apple account to existing user
+            user.appleId = appleId;
+            await user.save();
+          } else {
+            // Create new user (Apple only provides name on first sign in)
+            user = await User.create({
+              email: email?.toLowerCase(),
+              appleId,
+              firstName: fullName?.firstName || '',
+              lastName: fullName?.lastName || '',
+              emailVerified: true, // Apple verifies emails
+            });
+          }
         }
       }
 
       // Generate tokens
-      const tokens = await this.generateTokens(user._id.toString(), user.email);
+      const tokens = await this.generateTokens(user._id.toString(), user.email || user.deviceId || '');
 
       return {
         user: this.sanitizeUser(user),

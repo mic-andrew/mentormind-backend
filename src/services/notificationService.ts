@@ -107,10 +107,7 @@ class NotificationService {
    * Mark all notifications as read for a user
    */
   async markAllAsRead(userId: string) {
-    const result = await Notification.updateMany(
-      { userId, isRead: false },
-      { isRead: true }
-    );
+    const result = await Notification.updateMany({ userId, isRead: false }, { isRead: true });
 
     logger.info(`Marked ${result.modifiedCount} notifications as read for user ${userId}`);
     return result;

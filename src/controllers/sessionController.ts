@@ -17,14 +17,16 @@ class SessionController {
   async startSession(req: Request, res: Response): Promise<void> {
     try {
       const { userId } = req as AuthenticatedRequest;
-      const { coachId } = req.body;
+      const { coachId, type } = req.body;
+      logger.info(`[API] POST /sessions/start user=${userId} coach=${coachId} type=${type || 'regular'}`);
 
       if (!coachId) {
         sendError(res, ErrorCodes.VALIDATION_ERROR, 'Coach ID is required', 400);
         return;
       }
 
-      const result = await sessionService.startSession(userId, { coachId });
+      const result = await sessionService.startSession(userId, { coachId, type });
+      logger.info(`[API] start-session success session=${result.sessionId}`);
       sendSuccess(res, result, 201);
     } catch (error) {
       if (error instanceof Error) {
@@ -41,6 +43,9 @@ class SessionController {
           case 'OPENAI_API_ERROR':
             sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to initialize voice session', 503);
             return;
+          case 'SESSION_LIMIT_EXCEEDED':
+            sendError(res, ErrorCodes.FORBIDDEN, 'Free session limit reached. Upgrade to continue.', 403);
+            return;
         }
       }
       logger.error('Start session error:', error);
@@ -55,6 +60,7 @@ class SessionController {
   async sdpExchange(req: Request, res: Response): Promise<void> {
     try {
       const { sdp, token } = req.body;
+      logger.info(`[API] POST /sessions/sdp-exchange sdpLen=${sdp?.length || 0} hasToken=${!!token}`);
 
       if (!sdp || typeof sdp !== 'string') {
         sendError(res, ErrorCodes.VALIDATION_ERROR, 'SDP offer is required', 400);
@@ -67,6 +73,7 @@ class SessionController {
       }
 
       const answerSdp = await sessionService.sdpExchange(sdp, token);
+      logger.info(`[API] sdp-exchange success answerLen=${answerSdp?.length || 0}`);
       sendSuccess(res, { sdp: answerSdp });
     } catch (error) {
       if (error instanceof Error && error.message === 'SDP_EXCHANGE_FAILED') {
@@ -86,8 +93,10 @@ class SessionController {
     try {
       const { userId } = req as AuthenticatedRequest;
       const { id: sessionId } = req.params;
+      logger.info(`[API] POST /sessions/${sessionId}/resume user=${userId}`);
 
       const result = await sessionService.resumeSession(sessionId, userId);
+      logger.info(`[API] resume-session success session=${sessionId}`);
       sendSuccess(res, result);
     } catch (error) {
       if (error instanceof Error) {
@@ -120,6 +129,7 @@ class SessionController {
       const { userId } = req as AuthenticatedRequest;
       const { id: sessionId } = req.params;
       const { speakers, utterances } = req.body;
+      logger.info(`[API] PUT /sessions/${sessionId}/transcript user=${userId} utterances=${utterances?.length || 0}`);
 
       if (!utterances || !Array.isArray(utterances)) {
         sendError(res, ErrorCodes.VALIDATION_ERROR, 'Utterances array is required', 400);
@@ -156,13 +166,19 @@ class SessionController {
       const { userId } = req as AuthenticatedRequest;
       const { id: sessionId } = req.params;
       const { durationMs, finalUtterances, speakers } = req.body;
+      logger.info(`[API] POST /sessions/${sessionId}/end user=${userId} durationMs=${durationMs} utterances=${finalUtterances?.length || 0}`);
 
       if (typeof durationMs !== 'number') {
         sendError(res, ErrorCodes.VALIDATION_ERROR, 'Duration is required', 400);
         return;
       }
 
-      const result = await sessionService.endSession(sessionId, userId, { durationMs, finalUtterances, speakers });
+      const result = await sessionService.endSession(sessionId, userId, {
+        durationMs,
+        finalUtterances,
+        speakers,
+      });
+      logger.info(`[API] end-session success session=${sessionId}`);
       sendSuccess(res, result);
     } catch (error) {
       if (error instanceof Error) {
@@ -288,13 +304,9 @@ class SessionController {
   async updateUserContext(req: Request, res: Response): Promise<void> {
     try {
       const { userId } = req as AuthenticatedRequest;
-      const { primaryGoals, coreValues, keyChallenges } = req.body;
+      const { personalContext } = req.body;
 
-      const result = await sessionService.updateUserContext(userId, {
-        primaryGoals,
-        coreValues,
-        keyChallenges,
-      });
+      const result = await sessionService.updateUserContext(userId, personalContext || '');
 
       sendSuccess(res, result);
     } catch (error) {
@@ -310,6 +322,42 @@ class SessionController {
       }
       logger.error('Update user context error:', error);
       sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to update user context', 500);
+    }
+  }
+
+  /**
+   * Extract context from an interview session
+   * POST /api/sessions/:id/extract-context
+   */
+  async extractContext(req: Request, res: Response): Promise<void> {
+    try {
+      const { userId } = req as AuthenticatedRequest;
+      const { id: sessionId } = req.params;
+      logger.info(`[API] POST /sessions/${sessionId}/extract-context user=${userId}`);
+
+      const result = await sessionService.extractContextFromSession(sessionId, userId);
+      logger.info(`[API] extract-context success for session=${sessionId}`);
+      sendSuccess(res, result);
+    } catch (error) {
+      if (error instanceof Error) {
+        logger.warn(`[API] extract-context failed: ${error.message} session=${req.params.id}`);
+        switch (error.message) {
+          case 'INVALID_SESSION_ID':
+            sendError(res, ErrorCodes.VALIDATION_ERROR, 'Invalid session ID', 400);
+            return;
+          case 'SESSION_NOT_FOUND':
+            sendError(res, ErrorCodes.NOT_FOUND, 'Session not found', 404);
+            return;
+          case 'TRANSCRIPT_EMPTY':
+            sendError(res, ErrorCodes.VALIDATION_ERROR, 'Session has no transcript data', 400);
+            return;
+          case 'OPENAI_API_ERROR':
+            sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to analyze conversation', 503);
+            return;
+        }
+      }
+      logger.error('Extract context error:', error);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to extract context', 500);
     }
   }
 

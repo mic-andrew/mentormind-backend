@@ -1,11 +1,15 @@
 /**
- * Email Service using Resend Templates
- * All email templates are managed in Resend UI
+ * Email Service using Resend
  */
 
 import { Resend } from 'resend';
 import { env } from '../config/env';
 import { logger } from '../config/logger';
+import { EMAIL_SUBJECTS, EmailTemplateId } from '../constants/emailTemplates';
+import {
+  coachInvitationTemplate,
+  coachShareNotificationTemplate,
+} from '../templates/emails';
 
 // Resend Template IDs (configured in Resend UI)
 export const RESEND_TEMPLATE_IDS = {
@@ -13,8 +17,6 @@ export const RESEND_TEMPLATE_IDS = {
   PASSWORD_RESET: 'password-reset',
   WELCOME: 'welcome-onboarding-email',
   PASSWORD_CHANGED: 'password-changed',
-  COACH_INVITATION: 'coach-invitation',
-  COACH_SHARE_NOTIFICATION: 'coach-sharing-notification',
 } as const;
 
 interface SendTemplateEmailOptions {
@@ -43,7 +45,7 @@ class EmailService {
     logger.info(`Sending template email to ${to}: ${templateId}`);
     try {
       const { error } = await this.resend.emails.send({
-        from: env.emailFrom,
+        from: env.emailFrom!,
         to,
         template: { id: templateId, variables },
       });
@@ -66,7 +68,7 @@ class EmailService {
   async sendRawEmail({ to, subject, html }: SendRawEmailOptions): Promise<void> {
     try {
       const { error } = await this.resend.emails.send({
-        from: env.emailFrom,
+        from: env.emailFrom!,
         to,
         subject,
         html,
@@ -127,7 +129,11 @@ class EmailService {
   /**
    * Send welcome email after verification
    */
-  async sendWelcome(to: string, firstName: string, appUrl: string = env.frontendUrl): Promise<void> {
+  async sendWelcome(
+    to: string,
+    firstName: string,
+    appUrl: string = env.frontendUrl || ''
+  ): Promise<void> {
     await this.sendTemplateEmail({
       to,
       templateId: RESEND_TEMPLATE_IDS.WELCOME,
@@ -164,10 +170,11 @@ class EmailService {
     coachAvatar: string;
     acceptUrl: string;
   }): Promise<void> {
-    await this.sendTemplateEmail({
+    const html = coachInvitationTemplate(options);
+    await this.sendRawEmail({
       to: options.to,
-      templateId: RESEND_TEMPLATE_IDS.COACH_INVITATION,
-      variables: options,
+      subject: EMAIL_SUBJECTS[EmailTemplateId.COACH_INVITATION],
+      html,
     });
   }
 
@@ -185,10 +192,11 @@ class EmailService {
     permissionLevel: string;
     coachUrl: string;
   }): Promise<void> {
-    await this.sendTemplateEmail({
+    const html = coachShareNotificationTemplate(options);
+    await this.sendRawEmail({
       to: options.to,
-      templateId: RESEND_TEMPLATE_IDS.COACH_SHARE_NOTIFICATION,
-      variables: options,
+      subject: EMAIL_SUBJECTS[EmailTemplateId.COACH_SHARE_NOTIFICATION],
+      html,
     });
   }
 }

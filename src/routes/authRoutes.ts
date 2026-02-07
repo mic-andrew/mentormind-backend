@@ -9,6 +9,7 @@ import { authenticate } from '../middleware/auth';
 const router = Router();
 
 // Public routes
+router.post('/anonymous', (req, res) => authController.createAnonymousUser(req, res));
 router.post('/register', (req, res) => authController.register(req, res));
 router.post('/login', (req, res) => authController.login(req, res));
 router.post('/forgot-password', (req, res) => authController.forgotPassword(req, res));
@@ -27,8 +28,12 @@ router.post('/apple', (req, res) => authController.appleAuth(req, res));
 router.get('/me', authenticate, (req, res) => authController.getCurrentUser(req, res));
 router.patch('/profile', authenticate, (req, res) => authController.updateProfile(req, res));
 router.patch('/password', authenticate, (req, res) => authController.updatePassword(req, res));
-router.post('/schedule-deletion', authenticate, (req, res) => authController.scheduleAccountDeletion(req, res));
-router.post('/cancel-deletion', authenticate, (req, res) => authController.cancelAccountDeletion(req, res));
+router.post('/schedule-deletion', authenticate, (req, res) =>
+  authController.scheduleAccountDeletion(req, res)
+);
+router.post('/cancel-deletion', authenticate, (req, res) =>
+  authController.cancelAccountDeletion(req, res)
+);
 router.post('/logout', authenticate, (req, res) => authController.logout(req, res));
 
 export default router;

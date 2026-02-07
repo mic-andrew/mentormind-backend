@@ -9,12 +9,14 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
 export type SessionStatus = 'active' | 'paused' | 'ended' | 'error' | 'abandoned';
+export type SessionType = 'regular' | 'onboarding';
 
 export interface IVoiceSession extends Document {
   _id: Types.ObjectId;
   userId: Types.ObjectId;
   coachId: Types.ObjectId;
   status: SessionStatus;
+  type: SessionType;
   openaiSessionId?: string;
   startedAt: Date;
   endedAt?: Date;
@@ -45,6 +47,11 @@ const VoiceSessionSchema = new Schema<IVoiceSession>(
       type: String,
       enum: ['active', 'paused', 'ended', 'error', 'abandoned'],
       default: 'active',
+    },
+    type: {
+      type: String,
+      enum: ['regular', 'onboarding'],
+      default: 'regular',
     },
     openaiSessionId: {
       type: String,

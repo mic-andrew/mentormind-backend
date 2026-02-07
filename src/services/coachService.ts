@@ -12,6 +12,7 @@ import { logger } from '../config/logger';
 import { emailService } from './emailService';
 import { notificationService } from './notificationService';
 import { env } from '../config/env';
+import { subscriptionService } from './subscriptionService';
 
 interface CreateCoachData {
   name: string;
@@ -71,7 +72,11 @@ class CoachService {
   /**
    * Sanitize coach for API response (includes ownership info)
    */
-  private sanitizeCoach(coach: ICoach, userId?: string, shareInfo?: { permission: SharePermission; isOwner: boolean }) {
+  private sanitizeCoach(
+    coach: ICoach,
+    userId?: string,
+    shareInfo?: { permission: SharePermission; isOwner: boolean }
+  ) {
     const isOwner = shareInfo?.isOwner ?? (userId ? this.isOwner(coach, userId) : false);
 
     return {
@@ -90,6 +95,7 @@ class CoachService {
       conversationStarters: coach.conversationStarters,
       rating: coach.rating,
       sessionsCount: coach.sessionsCount,
+      reviewCount: coach.reviewCount,
       isVerified: coach.isVerified,
       isAI: coach.isAI,
       isPublished: coach.isPublished,
@@ -125,6 +131,7 @@ class CoachService {
       sampleTopics: coach.sampleTopics,
       rating: coach.rating,
       sessionsCount: coach.sessionsCount,
+      reviewCount: coach.reviewCount,
       isVerified: coach.isVerified,
       isAI: coach.isAI,
       isFeatured: coach.isFeatured,
@@ -148,7 +155,11 @@ class CoachService {
   /**
    * Check if user has access to a coach (owner or shared with)
    */
-  private async checkAccess(coachId: string, userId: string, requiredPermission: SharePermission = 'view'): Promise<{ hasAccess: boolean; isOwner: boolean; permission?: SharePermission }> {
+  private async checkAccess(
+    coachId: string,
+    userId: string,
+    requiredPermission: SharePermission = 'view'
+  ): Promise<{ hasAccess: boolean; isOwner: boolean; permission?: SharePermission }> {
     const coach = await Coach.findById(coachId);
     if (!coach) {
       return { hasAccess: false, isOwner: false };
@@ -185,7 +196,8 @@ class CoachService {
 
     // Check permission level
     const permissionLevels: Record<SharePermission, number> = { view: 1, use: 2, edit: 3 };
-    const hasRequiredPermission = permissionLevels[share.permission] >= permissionLevels[requiredPermission];
+    const hasRequiredPermission =
+      permissionLevels[share.permission] >= permissionLevels[requiredPermission];
 
     return { hasAccess: hasRequiredPermission, isOwner: false, permission: share.permission };
   }
@@ -193,7 +205,9 @@ class CoachService {
   /**
    * Get all published coaches with filters and pagination
    */
-  async getCoaches(filters: CoachFilters): Promise<PaginatedResponse<ReturnType<typeof this.sanitizeCoachPublic>>> {
+  async getCoaches(
+    filters: CoachFilters
+  ): Promise<PaginatedResponse<ReturnType<typeof this.sanitizeCoachPublic>>> {
     const { category, search, isPublished = true, isFeatured, page = 1, limit = 20 } = filters;
 
     const query: Record<string, unknown> = {};
@@ -274,7 +288,10 @@ class CoachService {
     if (userId) {
       const access = await this.checkAccess(id, userId);
       if (access.hasAccess) {
-        return this.sanitizeCoach(coach, userId, { permission: access.permission!, isOwner: access.isOwner });
+        return this.sanitizeCoach(coach, userId, {
+          permission: access.permission!,
+          isOwner: access.isOwner,
+        });
       }
     }
 
@@ -310,7 +327,10 @@ class CoachService {
     coach.lastUsedAt = new Date();
     await coach.save();
 
-    return this.sanitizeCoach(coach, userId, { permission: access.permission!, isOwner: access.isOwner });
+    return this.sanitizeCoach(coach, userId, {
+      permission: access.permission!,
+      isOwner: access.isOwner,
+    });
   }
 
   /**
@@ -319,6 +339,14 @@ class CoachService {
   async createCoach(data: CreateCoachData, createdBy: 'system' | string) {
     const bucketUrl = process.env.S3_BUCKET_URL || 'https://mentormind-assets.s3.amazonaws.com';
     const isSystem = createdBy === 'system';
+
+    // Check free tier coach creation limit (skip for system-created coaches)
+    if (!isSystem) {
+      const canCreate = await subscriptionService.canCreateCoach(createdBy);
+      if (!canCreate) {
+        throw new Error('COACH_LIMIT_EXCEEDED');
+      }
+    }
 
     let avatar = data.avatar || generateAvatarUrl(data.name, bucketUrl);
     let avatarId: Types.ObjectId | undefined;
@@ -333,9 +361,7 @@ class CoachService {
         // Assign avatar to user (track usage)
         if (!isSystem) {
           const userObjectId = new Types.ObjectId(createdBy);
-          const alreadyAssigned = avatarDoc.users.some(
-            (u) => u.toString() === createdBy
-          );
+          const alreadyAssigned = avatarDoc.users.some((u) => u.toString() === createdBy);
           if (!alreadyAssigned) {
             await Avatar.findByIdAndUpdate(data.avatarId, {
               $addToSet: { users: userObjectId },
@@ -357,7 +383,10 @@ class CoachService {
     });
 
     logger.info(`Coach created: ${coach.name} (${coach._id}) by ${createdBy}`);
-    return this.sanitizeCoach(coach, isSystem ? undefined : createdBy, { permission: 'edit', isOwner: !isSystem });
+    return this.sanitizeCoach(coach, isSystem ? undefined : createdBy, {
+      permission: 'edit',
+      isOwner: !isSystem,
+    });
   }
 
   /**
@@ -446,14 +475,13 @@ class CoachService {
     const userObjectId = new Types.ObjectId(userId);
 
     // Get coaches owned by user
-    const ownedCoaches = await Coach.find({ createdBy: userObjectId })
-      .sort({ updatedAt: -1 });
+    const ownedCoaches = await Coach.find({ createdBy: userObjectId }).sort({ updatedAt: -1 });
 
     // Get coaches shared with user (accepted)
     const shares = await SharedCoach.find({
       $or: [
         { sharedWithUserId: userObjectId },
-        { sharedWithEmail: user.email.toLowerCase() },
+        ...(user.email ? [{ sharedWithEmail: user.email.toLowerCase() }] : []),
       ],
       status: 'accepted',
     }).populate('coachId');
@@ -467,7 +495,10 @@ class CoachService {
     const sharedCoachesData = shares
       .filter((share) => share.coachId) // Filter out any null references
       .map((share) => ({
-        ...this.sanitizeCoach(share.coachId as unknown as ICoach, userId, { permission: share.permission, isOwner: false }),
+        ...this.sanitizeCoach(share.coachId as unknown as ICoach, userId, {
+          permission: share.permission,
+          isOwner: false,
+        }),
         shareType: 'shared' as const,
         sharedBy: share.ownerId.toString(),
       }));
@@ -562,38 +593,44 @@ class CoachService {
     // Send email notification based on whether recipient is a user
     if (recipient) {
       // Existing user - send notification
-      emailService.sendCoachShareNotification({
-        to: email,
-        recipientName: recipient.firstName || 'there',
-        senderName: owner?.firstName || 'A user',
-        coachName: coach.name,
-        coachSpecialty: coach.specialty,
-        coachBio: coach.bio,
-        coachAvatar: coach.avatar,
-        permissionLevel: data.permission,
-        coachUrl: `${env.frontendUrl}/coaches/${coachId}`,
-      }).catch((err) => logger.error('Failed to send coach share notification:', err));
+      emailService
+        .sendCoachShareNotification({
+          to: email,
+          recipientName: recipient.firstName || 'there',
+          senderName: owner?.firstName || 'A user',
+          coachName: coach.name,
+          coachSpecialty: coach.specialty,
+          coachBio: coach.bio,
+          coachAvatar: coach.avatar,
+          permissionLevel: data.permission,
+          coachUrl: `${env.frontendUrl}/coaches/${coachId}`,
+        })
+        .catch((err) => logger.error('Failed to send coach share notification:', err));
 
       // Create in-app notification for existing user
-      notificationService.createCoachShareNotification(
-        recipient._id.toString(),
-        ownerId,
-        coachId,
-        coach.name,
-        share._id.toString()
-      ).catch((err) => logger.error('Failed to create share notification:', err));
+      notificationService
+        .createCoachShareNotification(
+          recipient._id.toString(),
+          ownerId,
+          coachId,
+          coach.name,
+          share._id.toString()
+        )
+        .catch((err) => logger.error('Failed to create share notification:', err));
     } else {
       // New user - send invitation
-      emailService.sendCoachInvitation({
-        to: email,
-        senderName: owner?.firstName || 'A user',
-        senderEmail: owner?.email || '',
-        coachName: coach.name,
-        coachSpecialty: coach.specialty,
-        coachBio: coach.bio,
-        coachAvatar: coach.avatar,
-        acceptUrl: `${env.frontendUrl}/signup?invite=${share._id}`,
-      }).catch((err) => logger.error('Failed to send coach invitation:', err));
+      emailService
+        .sendCoachInvitation({
+          to: email,
+          senderName: owner?.firstName || 'A user',
+          senderEmail: owner?.email || '',
+          coachName: coach.name,
+          coachSpecialty: coach.specialty,
+          coachBio: coach.bio,
+          coachAvatar: coach.avatar,
+          acceptUrl: `${env.frontendUrl}/signup?invite=${share._id}`,
+        })
+        .catch((err) => logger.error('Failed to send coach invitation:', err));
     }
 
     return {
@@ -642,12 +679,14 @@ class CoachService {
     // Notify the coach owner
     const coach = await Coach.findById(share.coachId);
     if (coach) {
-      notificationService.createCoachAcceptedNotification(
-        share.ownerId.toString(),
-        userId,
-        share.coachId.toString(),
-        coach.name
-      ).catch((err) => logger.error('Failed to create accept notification:', err));
+      notificationService
+        .createCoachAcceptedNotification(
+          share.ownerId.toString(),
+          userId,
+          share.coachId.toString(),
+          coach.name
+        )
+        .catch((err) => logger.error('Failed to create accept notification:', err));
     }
 
     return { message: 'Share invitation accepted' };
@@ -687,12 +726,14 @@ class CoachService {
     // Notify the coach owner
     const coach = await Coach.findById(share.coachId);
     if (coach) {
-      notificationService.createCoachDeclinedNotification(
-        share.ownerId.toString(),
-        userId,
-        share.coachId.toString(),
-        coach.name
-      ).catch((err) => logger.error('Failed to create decline notification:', err));
+      notificationService
+        .createCoachDeclinedNotification(
+          share.ownerId.toString(),
+          userId,
+          share.coachId.toString(),
+          coach.name
+        )
+        .catch((err) => logger.error('Failed to create decline notification:', err));
     }
 
     return { message: 'Share invitation declined' };
@@ -791,22 +832,36 @@ class CoachService {
       .sort({ sharedAt: -1 });
 
     return shares.map((share) => {
-      const coach = share.coachId as unknown as { _id: Types.ObjectId; name: string; avatar: string; specialty: string };
-      const owner = share.ownerId as unknown as { _id: Types.ObjectId; firstName: string; lastName: string; email: string };
+      const coach = share.coachId as unknown as {
+        _id: Types.ObjectId;
+        name: string;
+        avatar: string;
+        specialty: string;
+      };
+      const owner = share.ownerId as unknown as {
+        _id: Types.ObjectId;
+        firstName: string;
+        lastName: string;
+        email: string;
+      };
 
       return {
         id: share._id.toString(),
-        coach: coach ? {
-          id: coach._id.toString(),
-          name: coach.name,
-          avatar: coach.avatar,
-          specialty: coach.specialty,
-        } : null,
-        sharedBy: owner ? {
-          id: owner._id.toString(),
-          name: `${owner.firstName} ${owner.lastName}`.trim(),
-          email: owner.email,
-        } : null,
+        coach: coach
+          ? {
+              id: coach._id.toString(),
+              name: coach.name,
+              avatar: coach.avatar,
+              specialty: coach.specialty,
+            }
+          : null,
+        sharedBy: owner
+          ? {
+              id: owner._id.toString(),
+              name: `${owner.firstName} ${owner.lastName}`.trim(),
+              email: owner.email,
+            }
+          : null,
         permission: share.permission,
         sharedAt: share.sharedAt.toISOString(),
       };
@@ -847,29 +902,6 @@ class CoachService {
       $inc: { activeUsersCount: 1 },
       lastUsedAt: new Date(),
     });
-  }
-
-  /**
-   * Update coach rating (called after review)
-   */
-  async updateRating(coachId: string, newRating: number) {
-    if (!Types.ObjectId.isValid(coachId)) {
-      throw new Error('INVALID_COACH_ID');
-    }
-
-    const coach = await Coach.findById(coachId);
-    if (!coach) {
-      throw new Error('COACH_NOT_FOUND');
-    }
-
-    const totalSessions = coach.sessionsCount || 1;
-    const currentTotal = coach.rating * totalSessions;
-    const newAverage = (currentTotal + newRating) / (totalSessions + 1);
-
-    coach.rating = Math.round(newAverage * 10) / 10;
-    await coach.save();
-
-    return coach.rating;
   }
 
   /**

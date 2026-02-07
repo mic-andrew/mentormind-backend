@@ -24,7 +24,6 @@ export async function connectDatabase() {
     mongoose.connection.on('disconnected', () => {
       logger.warn('MongoDB disconnected');
     });
-
   } catch (error) {
     logger.error('Failed to connect to MongoDB:', error);
     process.exit(1);

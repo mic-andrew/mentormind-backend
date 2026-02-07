@@ -18,6 +18,12 @@ export enum ErrorCodes {
   CONFLICT = 'CONFLICT',
   OTP_COOLDOWN = 'OTP_COOLDOWN',
   INTERNAL_ERROR = 'INTERNAL_ERROR',
+  COACH_LIMIT_EXCEEDED = 'COACH_LIMIT_EXCEEDED',
+  SESSION_LIMIT_EXCEEDED = 'SESSION_LIMIT_EXCEEDED',
+  SUBSCRIPTION_REQUIRED = 'SUBSCRIPTION_REQUIRED',
+  REVIEW_NOT_FOUND = 'REVIEW_NOT_FOUND',
+  ALREADY_REVIEWED = 'ALREADY_REVIEWED',
+  CANNOT_REVIEW_OWN_COACH = 'CANNOT_REVIEW_OWN_COACH',
 }
 
 interface SuccessResponse<T> {
@@ -34,11 +40,7 @@ interface ErrorResponse {
   };
 }
 
-export function sendSuccess<T>(
-  res: Response,
-  data: T,
-  statusCode: number = 200
-): void {
+export function sendSuccess<T>(res: Response, data: T, statusCode: number = 200): void {
   const response: SuccessResponse<T> = {
     success: true,
     data,

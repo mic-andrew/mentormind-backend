@@ -5,7 +5,7 @@
 import type { Response } from 'express';
 import { notificationService } from '../services/notificationService';
 import type { AuthenticatedRequest } from '../middleware/auth';
-import { sendSuccess, sendError } from '../utils/response';
+import { sendSuccess, sendError, ErrorCodes } from '../utils/response';
 import { logger } from '../config/logger';
 
 class NotificationController {
@@ -29,7 +29,7 @@ class NotificationController {
       sendSuccess(res, result);
     } catch (error) {
       logger.error('Get notifications error:', error);
-      sendError(res, 'INTERNAL_ERROR', 'Failed to fetch notifications', 500);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to fetch notifications', 500);
     }
   }
 
@@ -45,7 +45,7 @@ class NotificationController {
       sendSuccess(res, { unreadCount: count });
     } catch (error) {
       logger.error('Get unread count error:', error);
-      sendError(res, 'INTERNAL_ERROR', 'Failed to fetch unread count', 500);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to fetch unread count', 500);
     }
   }
 
@@ -64,10 +64,10 @@ class NotificationController {
     } catch (error: any) {
       logger.error('Mark as read error:', error);
       if (error.message === 'Notification not found') {
-        sendError(res, 'NOT_FOUND', 'Notification not found', 404);
+        sendError(res, ErrorCodes.NOT_FOUND, 'Notification not found', 404);
         return;
       }
-      sendError(res, 'INTERNAL_ERROR', 'Failed to mark notification as read', 500);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to mark notification as read', 500);
     }
   }
 
@@ -83,7 +83,7 @@ class NotificationController {
       sendSuccess(res, { message: 'All notifications marked as read' });
     } catch (error) {
       logger.error('Mark all as read error:', error);
-      sendError(res, 'INTERNAL_ERROR', 'Failed to mark notifications as read', 500);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to mark notifications as read', 500);
     }
   }
 
@@ -102,10 +102,10 @@ class NotificationController {
     } catch (error: any) {
       logger.error('Delete notification error:', error);
       if (error.message === 'Notification not found') {
-        sendError(res, 'NOT_FOUND', 'Notification not found', 404);
+        sendError(res, ErrorCodes.NOT_FOUND, 'Notification not found', 404);
         return;
       }
-      sendError(res, 'INTERNAL_ERROR', 'Failed to delete notification', 500);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to delete notification', 500);
     }
   }
 
@@ -121,7 +121,7 @@ class NotificationController {
       sendSuccess(res, { message: 'Read notifications deleted' });
     } catch (error) {
       logger.error('Delete read notifications error:', error);
-      sendError(res, 'INTERNAL_ERROR', 'Failed to delete read notifications', 500);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to delete read notifications', 500);
     }
   }
 }

@@ -31,16 +31,13 @@ class TranscriptionService {
 
       logger.info('[Transcription] Calling Deepgram API with nova-2 model...');
 
-      const { result, error } = await this.deepgram.listen.prerecorded.transcribeFile(
-        audioBuffer,
-        {
-          model: 'nova-2',
-          smart_format: true,
-          punctuate: true,
-          paragraphs: true,
-          language: 'en',
-        }
-      );
+      const { result, error } = await this.deepgram.listen.prerecorded.transcribeFile(audioBuffer, {
+        model: 'nova-2',
+        smart_format: true,
+        punctuate: true,
+        paragraphs: true,
+        language: 'en',
+      });
 
       if (error) {
         logger.error('[Transcription] Deepgram API returned error:', {
