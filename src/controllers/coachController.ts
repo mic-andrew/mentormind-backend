@@ -8,6 +8,7 @@ import { coachService } from '../services/coachService';
 import { transcriptionService } from '../services/transcriptionService';
 import { aiExtractionService } from '../services/aiExtractionService';
 import { coachSuggestionService } from '../services/coachSuggestionService';
+import { avatarService } from '../services/avatarService';
 import { sendSuccess, sendError, ErrorCodes } from '../utils/response';
 import type { AuthenticatedRequest } from '../middleware/auth';
 import { logger } from '../config/logger';
@@ -215,6 +216,78 @@ export class CoachController {
       }
       logger.error('Suggest coaches error:', error);
       sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to suggest coaches', 500);
+    }
+  }
+
+  /**
+   * POST /api/coaches/create-from-context
+   * Auto-create a single personalized coach from freeform user context
+   */
+  async createCoachFromContext(req: Request, res: Response): Promise<void> {
+    try {
+      const { userId } = req as AuthenticatedRequest;
+      const { personalContext } = req.body;
+      const effectiveUserId = userId || 'anonymous';
+
+      logger.info(`[API] POST /coaches/create-from-context user=${effectiveUserId} contextLen=${personalContext?.length || 0}`);
+
+      if (!personalContext || typeof personalContext !== 'string' || personalContext.trim().length < 20) {
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'Personal context must be at least 20 characters', 400);
+        return;
+      }
+
+      // Generate coach profile from context
+      const suggestion = await coachSuggestionService.createCoachFromContext(
+        personalContext,
+        effectiveUserId
+      );
+
+      // Pick avatar URL from matched avatars
+      const avatarUrl = suggestion.matchedAvatars[0]?.avatarImage || '';
+      const avatarId = suggestion.matchedAvatars[0]?.id;
+
+      // Create the coach in DB
+      const coach = await coachService.createCoach(
+        {
+          name: suggestion.name,
+          specialty: suggestion.specialty,
+          category: suggestion.category as CoachCategory,
+          description: suggestion.description,
+          bio: suggestion.bio,
+          tone: suggestion.tone,
+          coachingStyle: suggestion.coachingStyle,
+          systemPrompt: suggestion.systemPrompt,
+          avatar: avatarUrl,
+          avatarId,
+          sampleTopics: suggestion.sampleTopics,
+          conversationStarters: suggestion.conversationStarters,
+          isAI: true,
+        },
+        effectiveUserId
+      );
+
+      // Assign avatar to user if available
+      if (avatarId && userId) {
+        try {
+          await avatarService.assignAvatarToUser(avatarId, userId);
+        } catch (error) {
+          logger.warn('[API] create-from-context avatar assignment failed:', error);
+        }
+      }
+
+      logger.info(`[API] create-from-context success: coach=${coach.name} id=${coach.id}`);
+      sendSuccess(res, { coach }, 201);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'OPENAI_API_ERROR') {
+        sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to generate coach', 503);
+        return;
+      }
+      if (error instanceof Error && error.message === 'COACH_LIMIT_EXCEEDED') {
+        sendError(res, ErrorCodes.FORBIDDEN, 'Coach creation limit exceeded', 403);
+        return;
+      }
+      logger.error('Create coach from context error:', error);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to create coach', 500);
     }
   }
 

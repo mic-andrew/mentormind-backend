@@ -41,6 +41,9 @@ router.post('/quick-create', authenticate, upload.single('audio'), (req: Request
 );
 
 router.post('/suggest', optionalAuthenticate, (req, res) => coachController.suggestCoaches(req, res));
+router.post('/create-from-context', optionalAuthenticate, (req, res) =>
+  coachController.createCoachFromContext(req, res)
+);
 router.post('/', authenticate, (req, res) => coachController.createCoach(req, res));
 
 // Share invitation actions (before :id routes)

@@ -24,12 +24,16 @@ export interface IInsight {
   evidence: string;
 }
 
+export type CommitmentStatus = 'pending' | 'in_progress' | 'completed';
+
 export interface IActionCommitment {
   title: string;
   description: string;
   specifics: string[];
   difficulty: DifficultyLevel;
   impactLevel: ImpactLevel;
+  status: CommitmentStatus;
+  completedAt?: Date;
 }
 
 export interface IPerformanceScore {
@@ -96,6 +100,12 @@ const ActionCommitmentSchema = new Schema<IActionCommitment>(
     specifics: { type: [String], default: [] },
     difficulty: { type: String, enum: ['easy', 'moderate', 'hard'], required: true },
     impactLevel: { type: String, enum: ['high', 'medium', 'low'], required: true },
+    status: {
+      type: String,
+      enum: ['pending', 'in_progress', 'completed'],
+      default: 'pending',
+    },
+    completedAt: { type: Date },
   },
   { _id: false }
 );
@@ -181,6 +191,8 @@ const SessionEvaluationSchema = new Schema<ISessionEvaluation>(
 SessionEvaluationSchema.index({ sessionId: 1 }, { unique: true });
 // User evaluation history
 SessionEvaluationSchema.index({ userId: 1, createdAt: -1 });
+// Active commitments lookup for dashboard
+SessionEvaluationSchema.index({ userId: 1, 'actionCommitments.status': 1 });
 
 export const SessionEvaluation = mongoose.model<ISessionEvaluation>(
   'SessionEvaluation',

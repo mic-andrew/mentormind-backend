@@ -479,7 +479,10 @@ class CoachService {
 
     // Get coaches shared with user (accepted)
     const shares = await SharedCoach.find({
-      $or: [{ sharedWithUserId: userObjectId }, { sharedWithEmail: user.email.toLowerCase() }],
+      $or: [
+        { sharedWithUserId: userObjectId },
+        ...(user.email ? [{ sharedWithEmail: user.email.toLowerCase() }] : []),
+      ],
       status: 'accepted',
     }).populate('coachId');
 
