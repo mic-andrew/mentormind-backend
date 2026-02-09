@@ -21,7 +21,7 @@ const TONE_TO_VOICE: Record<string, string> = {
   professional: 'alloy',
   warm: 'shimmer',
   direct: 'echo',
-  casual: 'fable',
+  casual: 'coral',
   challenging: 'onyx',
 };
 
@@ -570,6 +570,12 @@ class SessionService {
         session.title = `Session with ${coachName}`;
       }
       await session.save();
+    }
+
+    // Mark user as onboarded when trial session ends
+    if (session.type === 'onboarding') {
+      await User.findByIdAndUpdate(userId, { isOnboarded: true });
+      logger.info(`User ${userId} marked as onboarded after trial session`);
     }
 
     logger.info(

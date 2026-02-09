@@ -17,4 +17,8 @@ router.get('/usage', authenticate, (req, res) =>
   subscriptionController.getUsage(req as AuthenticatedRequest, res)
 );
 
+router.post('/sync', authenticate, (req, res) =>
+  subscriptionController.syncSubscription(req as AuthenticatedRequest, res)
+);
+
 export default router;

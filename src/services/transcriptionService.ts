@@ -29,13 +29,13 @@ class TranscriptionService {
         throw new Error('Empty audio buffer - no audio data to transcribe');
       }
 
-      logger.info('[Transcription] Calling Deepgram API with nova-2 model...');
+      logger.info('[Transcription] Calling Deepgram API with nova-3 enhanced tier...');
 
       const { result, error } = await this.deepgram.listen.prerecorded.transcribeFile(audioBuffer, {
-        model: 'nova-2',
+        model: 'nova-3',
         smart_format: true,
         punctuate: true,
-        paragraphs: true,
+        diarize: false, // Skip speaker diarization for speed
         language: 'en',
       });
 
@@ -87,9 +87,10 @@ class TranscriptionService {
         { url: audioUrl },
         {
           model: 'nova-2',
+          tier: 'enhanced', // Best accuracy
           smart_format: true,
           punctuate: true,
-          paragraphs: true,
+          diarize: false, // Skip speaker diarization for speed
           language: 'en',
         }
       );

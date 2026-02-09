@@ -302,6 +302,10 @@ export class CoachController {
       const coach = await coachService.createCoach(req.body, userId);
       sendSuccess(res, { coach }, 201);
     } catch (error) {
+      if (error instanceof Error && error.message === 'COACH_LIMIT_EXCEEDED') {
+        sendError(res, ErrorCodes.FORBIDDEN, 'Coach creation limit exceeded', 403);
+        return;
+      }
       logger.error('Create coach error:', error);
       sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to create coach', 500);
     }
