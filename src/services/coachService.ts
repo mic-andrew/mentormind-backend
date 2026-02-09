@@ -185,7 +185,7 @@ class CoachService {
       coachId: new Types.ObjectId(coachId),
       $or: [
         { sharedWithUserId: new Types.ObjectId(userId) },
-        { sharedWithEmail: user.email.toLowerCase() },
+        { sharedWithEmail: user?.email?.toLowerCase() },
       ],
       status: 'accepted',
     });
@@ -340,11 +340,17 @@ class CoachService {
     const bucketUrl = process.env.S3_BUCKET_URL || 'https://mentormind-assets.s3.amazonaws.com';
     const isSystem = createdBy === 'system';
 
-    // Check free tier coach creation limit (skip for system-created coaches)
+    // Check free tier coach creation limit (skip for system-created coaches and onboarding)
     if (!isSystem) {
-      const canCreate = await subscriptionService.canCreateCoach(createdBy);
-      if (!canCreate) {
-        throw new Error('COACH_LIMIT_EXCEEDED');
+      // During onboarding (isOnboarded: false), skip limit check
+      const user = await User.findById(createdBy);
+      const isOnboarding = user && !user.isOnboarded;
+
+      if (!isOnboarding) {
+        const canCreate = await subscriptionService.canCreateCoach(createdBy);
+        if (!canCreate) {
+          throw new Error('COACH_LIMIT_EXCEEDED');
+        }
       }
     }
 
@@ -547,7 +553,7 @@ class CoachService {
 
     // Can't share with yourself
     const owner = await User.findById(ownerId);
-    if (owner && owner.email.toLowerCase() === email) {
+    if (owner && owner.email?.toLowerCase() === email) {
       throw new Error('CANNOT_SHARE_WITH_SELF');
     }
 
@@ -660,7 +666,7 @@ class CoachService {
       _id: new Types.ObjectId(shareId),
       $or: [
         { sharedWithUserId: new Types.ObjectId(userId) },
-        { sharedWithEmail: user.email.toLowerCase() },
+        { sharedWithEmail: user.email?.toLowerCase() },
       ],
       status: 'pending',
     });
@@ -709,7 +715,7 @@ class CoachService {
       _id: new Types.ObjectId(shareId),
       $or: [
         { sharedWithUserId: new Types.ObjectId(userId) },
-        { sharedWithEmail: user.email.toLowerCase() },
+        { sharedWithEmail: user.email?.toLowerCase() },
       ],
       status: 'pending',
     });
@@ -823,7 +829,7 @@ class CoachService {
     const shares = await SharedCoach.find({
       $or: [
         { sharedWithUserId: new Types.ObjectId(userId) },
-        { sharedWithEmail: user.email.toLowerCase() },
+        { sharedWithEmail: user?.email?.toLowerCase() },
       ],
       status: 'pending',
     })

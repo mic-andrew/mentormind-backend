@@ -226,14 +226,72 @@ class SubscriptionService {
     }
   }
 
-  private async activateSubscription(event: WebhookEvent): Promise<void> {
-    const userId = event.app_user_id;
-
-    // Determine if userId is a valid ObjectId (our MongoDB user ID)
-    if (!Types.ObjectId.isValid(userId)) {
-      logger.warn(`Webhook user ID is not a valid ObjectId: ${userId}`);
-      return;
+  /**
+   * Resolve a valid MongoDB user ID from a webhook event.
+   * Tries app_user_id first, then original_app_user_id (set after RevenueCat aliasing).
+   * If neither is valid, tries to find an existing Subscription by revenuecatAppUserId.
+   */
+  private async resolveUserId(event: WebhookEvent): Promise<string | null> {
+    if (Types.ObjectId.isValid(event.app_user_id)) {
+      return event.app_user_id;
     }
+    if (Types.ObjectId.isValid(event.original_app_user_id)) {
+      return event.original_app_user_id;
+    }
+
+    // Last resort: look up by RC anonymous ID stored in a previous subscription
+    const existing = await Subscription.findOne({
+      revenuecatAppUserId: { $in: [event.app_user_id, event.original_app_user_id] },
+    });
+    if (existing) {
+      return existing.userId.toString();
+    }
+
+    logger.warn(
+      `Cannot resolve user ID from webhook: app_user_id=${event.app_user_id}, original=${event.original_app_user_id}`
+    );
+    return null;
+  }
+
+  /**
+   * Sync subscription from client-side purchase data.
+   * Called after a successful RevenueCat purchase when the webhook may not have arrived yet.
+   */
+  async syncFromClient(
+    userId: string,
+    data: { productId: string; entitlementIds: string[] }
+  ): Promise<void> {
+    const plan = this.mapProductToPlan(data.productId);
+
+    await Subscription.findOneAndUpdate(
+      { userId: new Types.ObjectId(userId) },
+      {
+        $setOnInsert: {
+          revenuecatAppUserId: userId,
+          store: 'APP_STORE',
+          environment: 'PRODUCTION',
+          purchasedAt: new Date(),
+          isSandbox: false,
+        },
+        $set: {
+          productId: data.productId,
+          entitlementIds: data.entitlementIds,
+          plan,
+          status: 'active',
+          cancelReason: undefined,
+          cancelledAt: undefined,
+          billingIssueDetectedAt: undefined,
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    logger.info(`Subscription synced from client: ${plan} for user ${userId}`);
+  }
+
+  private async activateSubscription(event: WebhookEvent): Promise<void> {
+    const userId = await this.resolveUserId(event);
+    if (!userId) return;
 
     const plan = this.mapProductToPlan(event.product_id);
     const periodType = event.period_type as ISubscription['periodType'];
@@ -267,12 +325,8 @@ class SubscriptionService {
     event: WebhookEvent,
     newStatus: 'cancelled' | 'expired'
   ): Promise<void> {
-    const userId = event.app_user_id;
-
-    if (!Types.ObjectId.isValid(userId)) {
-      logger.warn(`Webhook user ID is not a valid ObjectId: ${userId}`);
-      return;
-    }
+    const userId = await this.resolveUserId(event);
+    if (!userId) return;
 
     await Subscription.findOneAndUpdate(
       { userId: new Types.ObjectId(userId) },
@@ -289,9 +343,8 @@ class SubscriptionService {
   }
 
   private async handleBillingIssue(event: WebhookEvent): Promise<void> {
-    const userId = event.app_user_id;
-
-    if (!Types.ObjectId.isValid(userId)) return;
+    const userId = await this.resolveUserId(event);
+    if (!userId) return;
 
     await Subscription.findOneAndUpdate(
       { userId: new Types.ObjectId(userId) },
@@ -305,9 +358,8 @@ class SubscriptionService {
   }
 
   private async reactivateSubscription(event: WebhookEvent): Promise<void> {
-    const userId = event.app_user_id;
-
-    if (!Types.ObjectId.isValid(userId)) return;
+    const userId = await this.resolveUserId(event);
+    if (!userId) return;
 
     await Subscription.findOneAndUpdate(
       { userId: new Types.ObjectId(userId) },
@@ -323,9 +375,8 @@ class SubscriptionService {
   }
 
   private async handleProductChange(event: WebhookEvent): Promise<void> {
-    const userId = event.app_user_id;
-
-    if (!Types.ObjectId.isValid(userId)) return;
+    const userId = await this.resolveUserId(event);
+    if (!userId) return;
 
     const newProductId = event.new_product_id || event.product_id;
     const newPlan = this.mapProductToPlan(newProductId);
