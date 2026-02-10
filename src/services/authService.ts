@@ -214,13 +214,13 @@ class AuthService {
       });
 
       emailService
-        .sendOTPVerification(user.email, otp, user.firstName || 'there')
+        .sendOTPVerification(user.email!, otp, user.firstName || 'there')
         .catch((err) => logger.error('Failed to send verification email:', err));
 
       throw new Error('EMAIL_NOT_VERIFIED');
     }
 
-    const tokens = await this.generateTokens(user._id.toString(), user.email);
+    const tokens = await this.generateTokens(user._id.toString(), user.email!);
 
     return {
       user: this.sanitizeUser(user),
@@ -229,7 +229,7 @@ class AuthService {
   }
 
   async createSession(user: IUser) {
-    const tokens = await this.generateTokens(user._id.toString(), user.email);
+    const tokens = await this.generateTokens(user._id.toString(), user.email!);
     return {
       user: this.sanitizeUser(user),
       tokens,
@@ -257,7 +257,7 @@ class AuthService {
     });
 
     emailService
-      .sendPasswordResetOTP(user.email, otp, user.firstName || 'there')
+      .sendPasswordResetOTP(user.email!, otp, user.firstName || 'there')
       .catch((err) => logger.error('Failed to send password reset email:', err));
 
     return {
@@ -290,10 +290,10 @@ class AuthService {
       user.emailVerified = true;
       await user.save();
 
-      const tokens = await this.generateTokens(user._id.toString(), user.email);
+      const tokens = await this.generateTokens(user._id.toString(), user.email!);
 
       emailService
-        .sendWelcome(user.email, user.firstName || 'there')
+        .sendWelcome(user.email!, user.firstName || 'there')
         .catch((err) => logger.error('Failed to send welcome email:', err));
 
       return {
@@ -356,8 +356,8 @@ class AuthService {
 
     const emailPromise =
       type === 'password-reset'
-        ? emailService.sendPasswordResetOTP(user.email, otp, user.firstName || 'there')
-        : emailService.sendOTPVerification(user.email, otp, user.firstName || 'there');
+        ? emailService.sendPasswordResetOTP(user.email!, otp, user.firstName || 'there')
+        : emailService.sendOTPVerification(user.email!, otp, user.firstName || 'there');
     emailPromise.catch((err) => logger.error('Failed to send OTP email:', err));
 
     return {
@@ -390,7 +390,7 @@ class AuthService {
     await tokenRecord.save();
 
     emailService
-      .sendPasswordChanged(user.email, user.firstName || 'there')
+      .sendPasswordChanged(user.email!, user.firstName || 'there')
       .catch((err) => logger.error('Failed to send password changed email:', err));
 
     return {
@@ -414,7 +414,7 @@ class AuthService {
       throw new Error('INVALID_TOKEN');
     }
 
-    const newTokens = await this.generateTokens(user._id.toString(), user.email);
+    const newTokens = await this.generateTokens(user._id.toString(), user.email || user.deviceId || '');
 
     tokenRecord.revoked = true;
     await tokenRecord.save();
@@ -476,9 +476,11 @@ class AuthService {
       ? 'Password updated successfully'
       : 'Password created successfully';
 
-    emailService
-      .sendPasswordChanged(user.email, user.firstName || 'there')
-      .catch((err) => logger.error('Failed to send password changed email:', err));
+    if (user.email) {
+      emailService
+        .sendPasswordChanged(user.email, user.firstName || 'there')
+        .catch((err) => logger.error('Failed to send password changed email:', err));
+    }
 
     return {
       message,
@@ -667,7 +669,7 @@ class AuthService {
     }
 
     // Generate tokens
-    const tokens = await this.generateTokens(user._id.toString(), user.email);
+    const tokens = await this.generateTokens(user._id.toString(), user.email!);
 
     return {
       user: this.sanitizeUser(user),

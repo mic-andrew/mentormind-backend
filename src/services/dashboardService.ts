@@ -535,7 +535,9 @@ class DashboardService {
         performanceScores.push({
           name: score.name,
           score: score.score,
+          category: score.category,
           description: score.description,
+          nextLevelAdvice: score.nextLevelAdvice,
         });
       }
     }
