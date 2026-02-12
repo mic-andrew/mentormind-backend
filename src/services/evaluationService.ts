@@ -19,7 +19,7 @@ import {
   IResource,
 } from '../models/SessionEvaluation';
 import { logger } from '../config/logger';
-import { EVALUATION_SYSTEM_PROMPT, buildEvaluationUserPrompt } from '../prompts/evaluation';
+import { EVALUATION_SYSTEM_PROMPT, buildEvaluationUserPrompt, EvaluationContext } from '../prompts/evaluation';
 
 // --- Zod schema for validating AI response ---
 
@@ -75,13 +75,7 @@ type EvaluationContent = z.infer<typeof evaluationResponseSchema>;
 
 // --- Service class ---
 
-interface EvaluationContext {
-  coachName: string;
-  coachSpecialty: string;
-  coachCategory: string;
-  userGoals?: string;
-  userChallenges?: string[];
-}
+// EvaluationContext imported from prompts/evaluation
 
 class EvaluationService {
   /**
@@ -165,6 +159,9 @@ class EvaluationService {
       throw new Error('OPENAI_API_ERROR');
     }
 
+    // Normalize known AI synonyms before validation
+    this.normalizeAIResponse(parsed);
+
     const result = evaluationResponseSchema.safeParse(parsed);
     if (!result.success) {
       logger.error('AI response validation failed:', result.error.issues);
@@ -172,6 +169,26 @@ class EvaluationService {
     }
 
     return result.data;
+  }
+
+  /**
+   * Normalize known AI response synonyms to match our Zod schema.
+   * AI models sometimes use "medium" instead of "moderate" for difficulty.
+   */
+  private normalizeAIResponse(data: unknown): void {
+    if (!data || typeof data !== 'object') return;
+    const obj = data as Record<string, unknown>;
+
+    if (Array.isArray(obj.actionCommitments)) {
+      for (const commitment of obj.actionCommitments) {
+        if (commitment && typeof commitment === 'object') {
+          const c = commitment as Record<string, unknown>;
+          if (c.difficulty === 'medium') {
+            c.difficulty = 'moderate';
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -263,6 +280,7 @@ class EvaluationService {
         coachName: coach?.name || 'Coach',
         coachSpecialty: coach?.specialty || 'General',
         coachCategory: coach?.category || 'custom',
+        userName: user?.firstName || undefined,
         userGoals: user?.personalContext || undefined,
       };
 

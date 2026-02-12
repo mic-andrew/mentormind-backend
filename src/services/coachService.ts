@@ -340,12 +340,14 @@ class CoachService {
     const bucketUrl = process.env.S3_BUCKET_URL || 'https://mentormind-assets.s3.amazonaws.com';
     const isSystem = createdBy === 'system';
 
-    // Check free tier coach creation limit (skip for system-created coaches and onboarding)
+    // Check free tier coach creation limit
+    // Skip for system-created coaches and users still in onboarding (isOnboarded=false).
+    // Onboarding users must always be able to create/re-create their first coach even if a
+    // previous onboarding attempt left a coach behind. isOnboarded is set to true only when
+    // the onboarding trial session ends successfully.
     if (!isSystem) {
-      // During onboarding (isOnboarded: false), skip limit check
       const user = await User.findById(createdBy);
       const isOnboarding = user && !user.isOnboarded;
-
       if (!isOnboarding) {
         const canCreate = await subscriptionService.canCreateCoach(createdBy);
         if (!canCreate) {
@@ -609,7 +611,7 @@ class CoachService {
           coachBio: coach.bio,
           coachAvatar: coach.avatar,
           permissionLevel: data.permission,
-          coachUrl: `${env.frontendUrl}/coaches/${coachId}`,
+          coachUrl: 'https://play.google.com/apps/internaltest/4701400362088575307',
         })
         .catch((err) => logger.error('Failed to send coach share notification:', err));
 
@@ -634,7 +636,7 @@ class CoachService {
           coachSpecialty: coach.specialty,
           coachBio: coach.bio,
           coachAvatar: coach.avatar,
-          acceptUrl: `${env.frontendUrl}/signup?invite=${share._id}`,
+          acceptUrl: 'https://play.google.com/apps/internaltest/4701400362088575307',
         })
         .catch((err) => logger.error('Failed to send coach invitation:', err));
     }

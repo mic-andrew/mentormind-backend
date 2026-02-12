@@ -22,7 +22,7 @@ export const CoachCategories = [
 export type CoachCategory = (typeof CoachCategories)[number];
 
 // Coach tone enum
-export const CoachTones = ['professional', 'casual', 'warm', 'direct', 'challenging'] as const;
+export const CoachTones = ['professional', 'casual', 'warm', 'direct', 'challenging', 'supportive'] as const;
 
 export type CoachTone = (typeof CoachTones)[number];
 

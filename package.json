@@ -1,7 +1,7 @@
 {
   "name": "mentormind-backend",
   "version": "1.0.0",
-  "description": "MentorMind Backend API",
+  "description": "Daily Coach Backend API",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -19,7 +19,10 @@
     "test:ci": "vitest run --coverage"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.987.0",
+    "@aws-sdk/s3-request-presigner": "^3.987.0",
     "@deepgram/sdk": "^3.5.0",
+    "adm-zip": "^0.5.16",
     "apple-signin-auth": "^1.7.6",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -31,16 +34,19 @@
     "mongoose": "^8.21.1",
     "multer": "^1.4.5-lts.1",
     "openai": "^4.77.0",
+    "pdf-parse": "^2.4.5",
     "resend": "^6.9.1",
     "zod": "^3.22.0"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
     "@types/bcryptjs": "^2.4.2",
     "@types/cors": "^2.8.13",
     "@types/express": "^4.17.17",
     "@types/jsonwebtoken": "^9.0.2",
     "@types/multer": "^1.4.12",
     "@types/node": "^20.0.0",
+    "@types/pdf-parse": "^1.1.5",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
     "@typescript-eslint/parser": "^8.54.0",
     "@vitest/coverage-v8": "^4.0.18",

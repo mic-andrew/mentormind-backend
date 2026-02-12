@@ -12,7 +12,7 @@ import { logger } from '../config/logger';
 
 const FREE_TIER_LIMITS = {
   maxCoaches: 1,
-  maxSessions: 3,
+  maxSessions: 1,
 };
 
 interface UsageInfo {

@@ -386,6 +386,38 @@ class SessionController {
       sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to get user context', 500);
     }
   }
+
+  /**
+   * Update user language preference
+   * PUT /api/sessions/language
+   */
+  async updateUserLanguage(req: Request, res: Response): Promise<void> {
+    try {
+      const { userId } = req as AuthenticatedRequest;
+      const { language } = req.body;
+
+      if (!language || typeof language !== 'string') {
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'Language is required', 400);
+        return;
+      }
+
+      const result = await sessionService.updateUserLanguage(userId, language);
+      sendSuccess(res, result);
+    } catch (error) {
+      if (error instanceof Error) {
+        switch (error.message) {
+          case 'INVALID_USER_ID':
+            sendError(res, ErrorCodes.VALIDATION_ERROR, 'Invalid user ID', 400);
+            return;
+          case 'USER_NOT_FOUND':
+            sendError(res, ErrorCodes.NOT_FOUND, 'User not found', 404);
+            return;
+        }
+      }
+      logger.error('Update user language error:', error);
+      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to update language', 500);
+    }
+  }
 }
 
 export const sessionController = new SessionController();

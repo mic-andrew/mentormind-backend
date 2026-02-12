@@ -1,5 +1,5 @@
 /**
- * MentorMind Backend API
+ * Daily Coach Backend API
  * Main entry point
  */
 

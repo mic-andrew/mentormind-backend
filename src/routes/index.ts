@@ -12,6 +12,8 @@ import subscriptionRoutes from './subscriptionRoutes';
 import webhookRoutes from './webhookRoutes';
 import dashboardRoutes from './dashboardRoutes';
 import engagementRoutes from './engagementRoutes';
+import uploadRoutes from './uploadRoutes';
+import moduleRoutes from './moduleRoutes';
 
 const router = Router();
 
@@ -24,6 +26,8 @@ router.use('/subscription', subscriptionRoutes);
 router.use('/webhooks', webhookRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/engagement', engagementRoutes);
+router.use('/uploads', uploadRoutes);
+router.use('/modules', moduleRoutes);
 
 // Health check
 router.get('/health', (_, res) => {

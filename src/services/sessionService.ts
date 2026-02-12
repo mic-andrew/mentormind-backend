@@ -8,6 +8,7 @@ import { VoiceSession, IVoiceSession, SessionStatus } from '../models/VoiceSessi
 import { Transcript, ITranscriptSpeaker } from '../models/Transcript';
 import { Coach, ICoach } from '../models/Coach';
 import { User, IUser } from '../models/User';
+import { Avatar } from '../models/Avatar';
 import { logger } from '../config/logger';
 import { subscriptionService } from './subscriptionService';
 import { buildSessionInstructions } from '../prompts/sessionInstructions';
@@ -16,13 +17,47 @@ import {
   buildContextExtractionPrompt,
 } from '../prompts/contextExtraction';
 
-// Voice mapping based on coach tone
+// Valid OpenAI Realtime API voices (keep in sync with API docs)
+const VALID_VOICES = new Set([
+  'alloy', 'ash', 'ballad', 'coral', 'echo',
+  'sage', 'shimmer', 'verse', 'marin', 'cedar',
+]);
+const DEFAULT_VOICE = 'alloy';
+
+function validateVoice(voice: string): string {
+  if (VALID_VOICES.has(voice)) return voice;
+  logger.warn(`[Voice] Invalid voice "${voice}", falling back to "${DEFAULT_VOICE}"`);
+  return DEFAULT_VOICE;
+}
+
+// Gender-aware voice mapping: gender → tone → OpenAI voice
+const GENDER_TONE_TO_VOICE: Record<string, Record<string, string>> = {
+  female: {
+    professional: 'shimmer',
+    warm: 'shimmer',
+    supportive: 'shimmer',
+    direct: 'coral',
+    casual: 'coral',
+    challenging: 'coral',
+  },
+  male: {
+    professional: 'alloy',
+    warm: 'echo',
+    supportive: 'echo',
+    direct: 'echo',
+    casual: 'coral',
+    challenging: 'ash',
+  },
+};
+
+// Fallback: tone-only mapping when gender is unknown
 const TONE_TO_VOICE: Record<string, string> = {
   professional: 'alloy',
   warm: 'shimmer',
+  supportive: 'shimmer',
   direct: 'echo',
   casual: 'coral',
-  challenging: 'onyx',
+  challenging: 'ash',
 };
 
 // Language name to ISO 639-1 code mapping
@@ -101,6 +136,33 @@ class SessionService {
   }
 
   /**
+   * Resolve OpenAI voice based on coach tone and avatar gender.
+   * Female avatars get feminine voices, male avatars get masculine voices.
+   */
+  private async resolveVoice(coach: ICoach): Promise<string> {
+    const tone = coach.tone || 'professional';
+
+    if (coach.avatarId) {
+      try {
+        const avatar = await Avatar.findById(coach.avatarId);
+        if (avatar?.characteristics?.gender) {
+          const gender = avatar.characteristics.gender;
+          const genderMap = GENDER_TONE_TO_VOICE[gender];
+          if (genderMap) {
+            const voice = validateVoice(genderMap[tone] || genderMap.professional);
+            logger.info(`[Voice] Resolved gender-aware voice: gender=${gender} tone=${tone} → ${voice}`);
+            return voice;
+          }
+        }
+      } catch (err) {
+        logger.warn('[Voice] Failed to resolve avatar gender, falling back to tone-only mapping');
+      }
+    }
+
+    return validateVoice(TONE_TO_VOICE[tone] || DEFAULT_VOICE);
+  }
+
+  /**
    * Build session history context for multi-session awareness.
    * Queries last 5 ended sessions with the same coach and builds a markdown summary.
    */
@@ -173,40 +235,56 @@ class SessionService {
    */
   private async getOpenAIEphemeralToken(
     instructions: string,
-    voice: string
+    voice: string,
+    languageCode: string = 'en'
   ): Promise<OpenAISessionResponse> {
     const openaiKey = process.env.OPENAI_API_KEY;
     if (!openaiKey) {
       throw new Error('OPENAI_API_KEY not configured');
     }
 
-    const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openaiKey}`,
-        'Content-Type': 'application/json',
+    const buildBody = (v: string) => JSON.stringify({
+      model: 'gpt-4o-realtime-preview',
+      voice: v,
+      instructions,
+      input_audio_format: 'pcm16',
+      output_audio_format: 'pcm16',
+      input_audio_transcription: { model: 'whisper-1', language: languageCode },
+      turn_detection: {
+        type: 'server_vad',
+        threshold: 0.5,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 2500,
       },
-      body: JSON.stringify({
-        model: 'gpt-4o-realtime-preview',
-        voice: voice,
-        instructions: instructions,
-        input_audio_format: 'pcm16',
-        output_audio_format: 'pcm16',
-        input_audio_transcription: {
-          model: 'whisper-1',
-        },
-        turn_detection: {
-          type: 'server_vad',
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 500,
-        },
-      }),
+    });
+
+    const headers = {
+      Authorization: `Bearer ${openaiKey}`,
+      'Content-Type': 'application/json',
+    };
+
+    const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+      method: 'POST', headers, body: buildBody(voice),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error('OpenAI Realtime API error:', errorText);
+
+      // Failsafe: if the voice was rejected, retry with default voice
+      if (errorText.includes('Invalid value') && voice !== DEFAULT_VOICE) {
+        logger.warn(`[Voice] Voice "${voice}" rejected by OpenAI, retrying with "${DEFAULT_VOICE}"`);
+        const retryResponse = await fetch('https://api.openai.com/v1/realtime/sessions', {
+          method: 'POST', headers, body: buildBody(DEFAULT_VOICE),
+        });
+        if (retryResponse.ok) {
+          return retryResponse.json() as Promise<OpenAISessionResponse>;
+        }
+        const retryError = await retryResponse.text();
+        logger.error('OpenAI Realtime API retry error:', retryError);
+      } else {
+        logger.error('OpenAI Realtime API error:', errorText);
+      }
+
       throw new Error('OPENAI_API_ERROR');
     }
 
@@ -277,8 +355,10 @@ class SessionService {
       throw new Error('USER_NOT_FOUND');
     }
 
-    // Check free tier session limit (skip for system coaches like the interviewer)
-    if (coach.createdBy !== 'system') {
+    // Check free tier session limit
+    // Skip for system coaches (interviewer) and onboarding sessions (user must complete trial)
+    const isOnboardingSession = data.type === 'onboarding';
+    if (coach.createdBy !== 'system' && !isOnboardingSession) {
       const canStart = await subscriptionService.canStartSession(userId);
       if (!canStart) {
         throw new Error('SESSION_LIMIT_EXCEEDED');
@@ -296,10 +376,11 @@ class SessionService {
 
     // Build instructions with history context
     const instructions = this.buildInstructions(coach, user, sessionHistory);
-    const voice = TONE_TO_VOICE[coach.tone || 'professional'] || 'alloy';
+    const voice = await this.resolveVoice(coach);
+    const langCode = languageToCode(user.language);
 
     // Get ephemeral token from OpenAI
-    const openaiSession = await this.getOpenAIEphemeralToken(instructions, voice);
+    const openaiSession = await this.getOpenAIEphemeralToken(instructions, voice, langCode);
 
     // Build speakers array with real names
     const speakers: ITranscriptSpeaker[] = [
@@ -418,8 +499,9 @@ class SessionService {
 
     // Build instructions with history context and get new token
     const instructions = this.buildInstructions(coach, user, sessionHistory);
-    const voice = TONE_TO_VOICE[coach.tone || 'professional'] || 'alloy';
-    const openaiSession = await this.getOpenAIEphemeralToken(instructions, voice);
+    const voice = await this.resolveVoice(coach);
+    const langCode = languageToCode(user.language);
+    const openaiSession = await this.getOpenAIEphemeralToken(instructions, voice, langCode);
 
     // Update session status
     session.status = 'active';
@@ -674,7 +756,6 @@ class SessionService {
 
     const query: Record<string, unknown> = {
       userId: new Types.ObjectId(userId),
-      type: { $ne: 'onboarding' },
     };
 
     if (coachId && Types.ObjectId.isValid(coachId)) {
@@ -750,6 +831,27 @@ class SessionService {
     logger.info(`User personal context updated: ${userId}`);
 
     return { personalContext: user.personalContext };
+  }
+
+  /**
+   * Update user language preference
+   */
+  async updateUserLanguage(userId: string, language: string) {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new Error('INVALID_USER_ID');
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('USER_NOT_FOUND');
+    }
+
+    user.language = language;
+    await user.save();
+
+    logger.info(`User language updated: ${userId} → ${language}`);
+
+    return { language: user.language };
   }
 
   /**

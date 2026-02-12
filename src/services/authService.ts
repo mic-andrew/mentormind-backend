@@ -103,7 +103,41 @@ class AuthService {
     const { email, password, firstName, lastName } = data;
 
     const user = await User.findById(anonymousUserId);
-    if (!user || !user.isAnonymous) {
+    if (!user) {
+      throw new Error('INVALID_ANONYMOUS_USER');
+    }
+
+    // Handle retry: user was already partially upgraded (isAnonymous set to false
+    // in a prior attempt) but didn't complete OTP verification
+    if (!user.isAnonymous) {
+      if (user.email === email.toLowerCase() && !user.emailVerified) {
+        // Same email, unverified — update password/name and resend OTP
+        const hashedPassword = await bcrypt.hash(password, 10);
+        user.password = hashedPassword;
+        user.firstName = firstName;
+        user.lastName = lastName;
+        await user.save();
+
+        const otp = generateOTP();
+        const otpExpiry = getOTPExpiry();
+
+        await OTPCode.create({
+          userId: user._id,
+          code: otp,
+          expiresAt: otpExpiry,
+          type: 'registration',
+          verified: false,
+        });
+
+        emailService
+          .sendOTPVerification(email.toLowerCase(), otp, firstName)
+          .catch((err) => logger.error('Failed to send verification email:', err));
+
+        return {
+          message: 'Verification code resent. Please check your email.',
+          retryAfter: OTP_RESEND_COOLDOWN_SECONDS,
+        };
+      }
       throw new Error('INVALID_ANONYMOUS_USER');
     }
 

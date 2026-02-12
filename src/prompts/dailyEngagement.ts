@@ -18,7 +18,7 @@ interface CoachNudgeContext {
   commitmentTitles: string[];
 }
 
-export const DAILY_PROMPT_SYSTEM_MESSAGE = `You are a coaching accountability assistant for MentorMind. Your job is to generate a specific, actionable micro-exercise that a user can complete TODAY based on their active coaching commitments.
+export const DAILY_PROMPT_SYSTEM_MESSAGE = `You are a coaching accountability assistant for Daily Coach. Your job is to generate a specific, actionable micro-exercise that a user can complete TODAY based on their active coaching commitments.
 
 You must return a JSON object with this exact structure:
 {

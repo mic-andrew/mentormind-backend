@@ -19,6 +19,7 @@ router.get('/history', authenticate, (req, res) => sessionController.getSessionH
 router.get('/active', authenticate, (req, res) => sessionController.getActiveSession(req, res));
 router.get('/context', authenticate, (req, res) => sessionController.getUserContext(req, res));
 router.put('/context', authenticate, (req, res) => sessionController.updateUserContext(req, res));
+router.put('/language', authenticate, (req, res) => sessionController.updateUserLanguage(req, res));
 
 // Parameterized routes (must come after specific paths)
 router.get('/:id', authenticate, (req, res) => sessionController.getSession(req, res));

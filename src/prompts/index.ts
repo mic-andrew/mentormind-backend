@@ -15,7 +15,7 @@ export {
 
 export { AVATAR_MATCHING_SYSTEM_MESSAGE, buildAvatarMatchingPrompt } from './avatarMatching';
 
-export { INTERVIEWER_SYSTEM_PROMPT } from './interviewer';
+export { buildInterviewerPrompt } from './interviewer';
 
 export {
   CONTEXT_EXTRACTION_SYSTEM_MESSAGE,
@@ -38,3 +38,17 @@ export {
   COACH_NUDGE_SYSTEM_MESSAGE,
   buildCoachNudgeUserMessage,
 } from './dailyEngagement';
+
+export {
+  MODULE_GENERATION_SYSTEM_PROMPT,
+  buildModuleGenerationPrompt,
+  FRAME_SYSTEM_PROMPT,
+  buildFramePrompt,
+  buildReflectVoiceInstructions,
+  SHIFT_SYSTEM_PROMPT,
+  buildShiftPrompt,
+  TRANSCRIPT_SUMMARY_SYSTEM_PROMPT,
+  buildTranscriptSummaryPrompt,
+  COMPLETION_QUOTE_SYSTEM_PROMPT,
+  buildCompletionQuotePrompt,
+} from './moduleSteps';
