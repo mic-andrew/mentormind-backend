@@ -1,5 +1,5 @@
 /**
- * Seed Script: Create the MentorMind context interviewer coach
+ * Seed Script: Create the Daily Coach context interviewer coach
  *
  * Creates a special system coach used for onboarding context extraction.
  * Queries the Avatar collection to find a suitable warm/professional avatar.
@@ -12,7 +12,7 @@ import { connectDatabase } from '../config/database';
 import { Coach } from '../models/Coach';
 import { Avatar } from '../models/Avatar';
 import { logger } from '../config/logger';
-import { INTERVIEWER_SYSTEM_PROMPT } from '../prompts/interviewer';
+import { buildInterviewerPrompt } from '../prompts/interviewer';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -23,7 +23,7 @@ async function seedInterviewer() {
   logger.info('[SeedInterviewer] Checking for existing interviewer coach...');
 
   const existing = await Coach.findOne({
-    name: 'MentorMind',
+    name: 'Daily Coach',
     createdBy: 'system',
     isPublished: false,
   });
@@ -55,14 +55,14 @@ async function seedInterviewer() {
   logger.info(`[SeedInterviewer] Selected avatar: ${avatar.name} (${avatar._id})`);
 
   const interviewer = await Coach.create({
-    name: 'MentorMind',
+    name: 'Daily Coach',
     avatar: avatar.avatarImage,
     avatarId: avatar._id,
     specialty: 'Personal Discovery',
     category: 'custom',
     description: 'Your onboarding guide',
     bio: 'I help you discover what you need from coaching through a friendly conversation. Together we\'ll find the perfect coach to accelerate your growth.',
-    systemPrompt: INTERVIEWER_SYSTEM_PROMPT,
+    systemPrompt: buildInterviewerPrompt('English'),
     tone: 'warm',
     coachingStyle: ['Empathetic', 'Socratic'],
     createdBy: 'system',

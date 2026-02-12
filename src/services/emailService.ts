@@ -1,5 +1,5 @@
 /**
- * Email Service using Resend
+ * Email Service using Resend with local HTML templates
  */
 
 import { Resend } from 'resend';
@@ -7,23 +7,13 @@ import { env } from '../config/env';
 import { logger } from '../config/logger';
 import { EMAIL_SUBJECTS, EmailTemplateId } from '../constants/emailTemplates';
 import {
+  otpVerificationTemplate,
+  otpPasswordResetTemplate,
+  welcomeTemplate,
+  passwordChangedTemplate,
   coachInvitationTemplate,
   coachShareNotificationTemplate,
 } from '../templates/emails';
-
-// Resend Template IDs (configured in Resend UI)
-export const RESEND_TEMPLATE_IDS = {
-  EMAIL_VERIFICATION: 'email-verification-code',
-  PASSWORD_RESET: 'password-reset',
-  WELCOME: 'welcome-onboarding-email',
-  PASSWORD_CHANGED: 'password-changed',
-} as const;
-
-interface SendTemplateEmailOptions {
-  to: string;
-  templateId: string;
-  variables: Record<string, any>;
-}
 
 interface SendRawEmailOptions {
   to: string;
@@ -39,33 +29,9 @@ class EmailService {
   }
 
   /**
-   * Send email using Resend template
+   * Send HTML email via Resend
    */
-  async sendTemplateEmail({ to, templateId, variables }: SendTemplateEmailOptions): Promise<void> {
-    logger.info(`Sending template email to ${to}: ${templateId}`);
-    try {
-      const { error } = await this.resend.emails.send({
-        from: env.emailFrom!,
-        to,
-        template: { id: templateId, variables },
-      });
-
-      if (error) {
-        logger.error('Failed to send template email:', error);
-        throw new Error(`Template email send failed: ${error.message}`);
-      }
-
-      logger.info(`Template email sent to ${to}: ${templateId}`);
-    } catch (err) {
-      logger.error('Email service error:', err);
-      throw err;
-    }
-  }
-
-  /**
-   * Send raw HTML email (for custom cases)
-   */
-  async sendRawEmail({ to, subject, html }: SendRawEmailOptions): Promise<void> {
+  async sendEmail({ to, subject, html }: SendRawEmailOptions): Promise<void> {
     try {
       const { error } = await this.resend.emails.send({
         from: env.emailFrom!,
@@ -90,19 +56,11 @@ class EmailService {
    * Send OTP verification email (registration)
    */
   async sendOTPVerification(to: string, otp: string, firstName: string): Promise<void> {
-    const digits = otp.split('');
-    await this.sendTemplateEmail({
+    const html = otpVerificationTemplate({ otp, firstName });
+    await this.sendEmail({
       to,
-      templateId: RESEND_TEMPLATE_IDS.EMAIL_VERIFICATION,
-      variables: {
-        firstName,
-        otpDigit1: digits[0],
-        otpDigit2: digits[1],
-        otpDigit3: digits[2],
-        otpDigit4: digits[3],
-        otpDigit5: digits[4],
-        otpDigit6: digits[5],
-      },
+      subject: EMAIL_SUBJECTS[EmailTemplateId.OTP_VERIFICATION],
+      html,
     });
   }
 
@@ -110,37 +68,23 @@ class EmailService {
    * Send password reset OTP email
    */
   async sendPasswordResetOTP(to: string, otp: string, firstName: string): Promise<void> {
-    const digits = otp.split('');
-    await this.sendTemplateEmail({
+    const html = otpPasswordResetTemplate({ otp, firstName });
+    await this.sendEmail({
       to,
-      templateId: RESEND_TEMPLATE_IDS.PASSWORD_RESET,
-      variables: {
-        firstName,
-        otpDigit1: digits[0],
-        otpDigit2: digits[1],
-        otpDigit3: digits[2],
-        otpDigit4: digits[3],
-        otpDigit5: digits[4],
-        otpDigit6: digits[5],
-      },
+      subject: EMAIL_SUBJECTS[EmailTemplateId.OTP_PASSWORD_RESET],
+      html,
     });
   }
 
   /**
    * Send welcome email after verification
    */
-  async sendWelcome(
-    to: string,
-    firstName: string,
-    appUrl: string = env.frontendUrl || ''
-  ): Promise<void> {
-    await this.sendTemplateEmail({
+  async sendWelcome(to: string, firstName: string): Promise<void> {
+    const html = welcomeTemplate({ firstName });
+    await this.sendEmail({
       to,
-      templateId: RESEND_TEMPLATE_IDS.WELCOME,
-      variables: {
-        firstName,
-        appUrl,
-      },
+      subject: EMAIL_SUBJECTS[EmailTemplateId.WELCOME],
+      html,
     });
   }
 
@@ -148,12 +92,11 @@ class EmailService {
    * Send password changed confirmation
    */
   async sendPasswordChanged(to: string, firstName: string): Promise<void> {
-    await this.sendTemplateEmail({
+    const html = passwordChangedTemplate({ firstName });
+    await this.sendEmail({
       to,
-      templateId: RESEND_TEMPLATE_IDS.PASSWORD_CHANGED,
-      variables: {
-        firstName,
-      },
+      subject: EMAIL_SUBJECTS[EmailTemplateId.PASSWORD_CHANGED],
+      html,
     });
   }
 
@@ -171,7 +114,7 @@ class EmailService {
     acceptUrl: string;
   }): Promise<void> {
     const html = coachInvitationTemplate(options);
-    await this.sendRawEmail({
+    await this.sendEmail({
       to: options.to,
       subject: EMAIL_SUBJECTS[EmailTemplateId.COACH_INVITATION],
       html,
@@ -193,7 +136,7 @@ class EmailService {
     coachUrl: string;
   }): Promise<void> {
     const html = coachShareNotificationTemplate(options);
-    await this.sendRawEmail({
+    await this.sendEmail({
       to: options.to,
       subject: EMAIL_SUBJECTS[EmailTemplateId.COACH_SHARE_NOTIFICATION],
       html,

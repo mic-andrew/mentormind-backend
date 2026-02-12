@@ -12,10 +12,10 @@ export enum EmailTemplateId {
 }
 
 export const EMAIL_SUBJECTS: Record<EmailTemplateId, string> = {
-  [EmailTemplateId.OTP_VERIFICATION]: 'Verify your MentorMind account',
-  [EmailTemplateId.OTP_PASSWORD_RESET]: 'Reset your MentorMind password',
-  [EmailTemplateId.WELCOME]: 'Welcome to MentorMind!',
+  [EmailTemplateId.OTP_VERIFICATION]: 'Verify your Daily Coach account',
+  [EmailTemplateId.OTP_PASSWORD_RESET]: 'Reset your Daily Coach password',
+  [EmailTemplateId.WELCOME]: 'Welcome to Daily Coach!',
   [EmailTemplateId.PASSWORD_CHANGED]: 'Your password has been changed',
-  [EmailTemplateId.COACH_INVITATION]: "You've been invited to MentorMind",
+  [EmailTemplateId.COACH_INVITATION]: "You've been invited to Daily Coach",
   [EmailTemplateId.COACH_SHARE_NOTIFICATION]: 'A coach has been shared with you',
 };

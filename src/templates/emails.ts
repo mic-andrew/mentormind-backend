@@ -1,12 +1,12 @@
 /**
  * Email HTML templates
- * Uses MentorMind design system colors from tailwind.config.js
+ * Uses Daily Coach design system colors from tailwind.config.js
  */
 
 // Design system colors
 const colors = {
-  primary: '#1173d4',
-  primaryDark: '#0d5ba8',
+  primary: '#111418',
+  primaryDark: '#000000',
   background: '#f6f7f8',
   surface: '#ffffff',
   input: '#f0f2f4',
@@ -26,7 +26,7 @@ function baseLayout(content: string): string {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <title>MentorMind</title>
+  <title>Daily Coach</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: ${colors.background}; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; -webkit-font-smoothing: antialiased;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: ${colors.background};">
@@ -36,7 +36,7 @@ function baseLayout(content: string): string {
           <!-- Logo -->
           <tr>
             <td align="center" style="padding-bottom: 32px;">
-              <span style="font-size: 24px; font-weight: 700; color: ${colors.primary}; letter-spacing: -0.5px;">MentorMind</span>
+              <span style="font-size: 24px; font-weight: 700; color: ${colors.primary}; letter-spacing: -0.5px;">Daily Coach</span>
             </td>
           </tr>
           <!-- Card -->
@@ -49,7 +49,7 @@ function baseLayout(content: string): string {
           <tr>
             <td align="center" style="padding-top: 24px;">
               <p style="color: ${colors.muted}; font-size: 12px; margin: 0; line-height: 1.5;">
-                You received this email because you have a MentorMind account.
+                You received this email because you have a Daily Coach account.
                 <br>If you didn't make this request, you can safely ignore this email.
               </p>
             </td>
@@ -142,7 +142,7 @@ export function welcomeTemplate(data: { firstName: string }): string {
       </div>
     </div>
     <h1 style="color: ${colors.foreground}; font-size: 22px; font-weight: 700; margin: 0 0 8px 0; text-align: center;">
-      Welcome to MentorMind!
+      Welcome to Daily Coach!
     </h1>
     <p style="color: ${colors.muted}; font-size: 15px; margin: 0 0 28px 0; text-align: center; line-height: 1.5;">
       Hi ${data.firstName}, your email has been verified and your account is all set.
@@ -172,8 +172,8 @@ export function welcomeTemplate(data: { firstName: string }): string {
     <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
       <tr>
         <td align="center">
-          <a href="#" style="display: inline-block; background-color: ${colors.primary}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; padding: 12px 32px; border-radius: 10px;">
-            Open MentorMind
+          <a href="https://play.google.com/apps/internaltest/4701400362088575307" style="display: inline-block; background-color: ${colors.primary}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; padding: 12px 32px; border-radius: 10px;">
+            Open Daily Coach
           </a>
         </td>
       </tr>
@@ -195,7 +195,7 @@ export function passwordChangedTemplate(data: { firstName: string }): string {
       Password changed
     </h1>
     <p style="color: ${colors.muted}; font-size: 15px; margin: 0 0 28px 0; text-align: center; line-height: 1.5;">
-      Hi ${data.firstName}, your MentorMind password was successfully changed.
+      Hi ${data.firstName}, your Daily Coach password was successfully changed.
     </p>
     <div style="background-color: #fef2f2; border-radius: 10px; padding: 14px 16px; margin-bottom: 24px; border: 1px solid #fecaca;">
       <p style="color: #991b1b; font-size: 13px; margin: 0; text-align: center; line-height: 1.5;">
@@ -277,7 +277,7 @@ export function coachInvitationTemplate(data: {
 }): string {
   return baseLayout(`
     <div style="text-align: center; margin-bottom: 24px;">
-      <div style="width: 56px; height: 56px; background-color: #eff6ff; border-radius: 50%; display: inline-block; line-height: 56px;">
+      <div style="width: 56px; height: 56px; background-color: ${colors.input}; border-radius: 50%; display: inline-block; line-height: 56px;">
         <span style="font-size: 28px;">&#127873;</span>
       </div>
     </div>
@@ -285,10 +285,10 @@ export function coachInvitationTemplate(data: {
       ${data.senderName} shared a coach with you
     </h1>
     <p style="color: ${colors.muted}; font-size: 15px; margin: 0 0 28px 0; text-align: center; line-height: 1.5;">
-      You've been invited to try an AI coach on MentorMind.
+      You've been invited to try an AI coach on Daily Coach.
     </p>
     ${coachCard(data)}
-    <div style="background-color: #eff6ff; border-radius: 10px; padding: 12px 16px; margin-bottom: 24px; border: 1px solid #bfdbfe;">
+    <div style="background-color: ${colors.input}; border-radius: 10px; padding: 12px 16px; margin-bottom: 24px; border: 1px solid ${colors.border};">
       <p style="color: ${colors.primary}; font-size: 13px; font-weight: 600; margin: 0; text-align: center;">
         &#128274;&nbsp; ${permissionLabel('use')}
       </p>
@@ -297,7 +297,7 @@ export function coachInvitationTemplate(data: {
       <tr>
         <td align="center">
           <a href="${data.acceptUrl}" style="display: inline-block; background-color: ${colors.primary}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; padding: 14px 36px; border-radius: 10px;">
-            Join MentorMind
+            Join Daily Coach
           </a>
         </td>
       </tr>
@@ -323,7 +323,7 @@ export function coachShareNotificationTemplate(data: {
 }): string {
   return baseLayout(`
     <div style="text-align: center; margin-bottom: 24px;">
-      <div style="width: 56px; height: 56px; background-color: #eff6ff; border-radius: 50%; display: inline-block; line-height: 56px;">
+      <div style="width: 56px; height: 56px; background-color: ${colors.input}; border-radius: 50%; display: inline-block; line-height: 56px;">
         <span style="font-size: 28px;">&#129309;</span>
       </div>
     </div>
@@ -334,7 +334,7 @@ export function coachShareNotificationTemplate(data: {
       Hi ${data.recipientName}, you now have access to a new AI coach.
     </p>
     ${coachCard(data)}
-    <div style="background-color: #eff6ff; border-radius: 10px; padding: 12px 16px; margin-bottom: 24px; border: 1px solid #bfdbfe;">
+    <div style="background-color: ${colors.input}; border-radius: 10px; padding: 12px 16px; margin-bottom: 24px; border: 1px solid ${colors.border};">
       <p style="color: ${colors.primary}; font-size: 13px; font-weight: 600; margin: 0; text-align: center;">
         &#128274;&nbsp; ${permissionLabel(data.permissionLevel)}
       </p>
