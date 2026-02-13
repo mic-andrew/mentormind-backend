@@ -433,13 +433,49 @@ class AuthService {
   }
 
   async refreshToken(refreshToken: string) {
-    const tokenRecord = await RefreshToken.findOne({
+    // First try to find a valid (non-revoked) token
+    let tokenRecord = await RefreshToken.findOne({
       token: refreshToken,
       revoked: false,
       expiresAt: { $gt: new Date() },
     });
 
     if (!tokenRecord) {
+      // Grace period: if the token was revoked within the last 30 seconds
+      // (e.g. concurrent request race condition), return the replacement token
+      const GRACE_PERIOD_MS = 30_000;
+      const revokedRecord = await RefreshToken.findOne({
+        token: refreshToken,
+        revoked: true,
+        revokedAt: { $gt: new Date(Date.now() - GRACE_PERIOD_MS) },
+        replacedByToken: { $exists: true, $ne: null },
+      });
+
+      if (revokedRecord) {
+        // Find the replacement token's corresponding access token
+        const replacementRecord = await RefreshToken.findOne({
+          token: revokedRecord.replacedByToken,
+          revoked: false,
+        });
+
+        if (replacementRecord) {
+          const user = await User.findById(replacementRecord.userId);
+          if (!user) throw new Error('INVALID_TOKEN');
+
+          // Generate a fresh access token but reuse the existing refresh token
+          const accessToken = jwt.sign(
+            { userId: user._id.toString(), email: user.email || user.deviceId || '' },
+            JWT_SECRET,
+            { expiresIn: JWT_EXPIRES_IN } as jwt.SignOptions
+          );
+
+          return {
+            accessToken,
+            refreshToken: replacementRecord.token,
+          };
+        }
+      }
+
       throw new Error('INVALID_TOKEN');
     }
 
@@ -451,6 +487,8 @@ class AuthService {
     const newTokens = await this.generateTokens(user._id.toString(), user.email || user.deviceId || '');
 
     tokenRecord.revoked = true;
+    tokenRecord.revokedAt = new Date();
+    tokenRecord.replacedByToken = newTokens.refreshToken;
     await tokenRecord.save();
 
     return newTokens;
