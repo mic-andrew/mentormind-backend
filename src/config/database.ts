@@ -22,8 +22,9 @@ export async function connectDatabase() {
     }
 
     await mongoose.connect(dbUrl, {
-      serverSelectionTimeoutMS: 10000,
+      serverSelectionTimeoutMS: 15000,
       socketTimeoutMS: 45000,
+      family: 4,
       bufferCommands: false,
     });
 
