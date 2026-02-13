@@ -5,7 +5,7 @@
 
 import * as crypto from 'crypto';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { PDFParse } from 'pdf-parse';
+import pdf from 'pdf-parse';
 import AdmZip from 'adm-zip';
 import { env } from '../config/env';
 import { logger } from '../config/logger';
@@ -116,10 +116,8 @@ class UploadService {
    * Extract text from a PDF buffer using pdf-parse.
    */
   private async extractFromPdf(buffer: Buffer): Promise<string> {
-    const parser = new PDFParse({ data: buffer });
-    const result = await parser.getText();
-    await parser.destroy();
-    return result.text.trim();
+    const data = await pdf(buffer);
+    return data.text.trim();
   }
 
   /**

@@ -99,8 +99,7 @@ const TranscriptSchema = new Schema<ITranscript>(
   }
 );
 
-// Fast lookup by session
-TranscriptSchema.index({ sessionId: 1 });
+// sessionId already has a unique index via schema field definition
 // Multi-session history queries
 TranscriptSchema.index({ userId: 1, coachId: 1, createdAt: -1 });
 TranscriptSchema.index({ userId: 1, createdAt: -1 });

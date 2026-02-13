@@ -187,8 +187,7 @@ const SessionEvaluationSchema = new Schema<ISessionEvaluation>(
   }
 );
 
-// One evaluation per session
-SessionEvaluationSchema.index({ sessionId: 1 }, { unique: true });
+// sessionId already has a unique index via schema field definition
 // User evaluation history
 SessionEvaluationSchema.index({ userId: 1, createdAt: -1 });
 // Active commitments lookup for dashboard
