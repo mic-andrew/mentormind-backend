@@ -88,12 +88,25 @@ class AuthService {
       return { user: this.sanitizeUser(user), tokens, isExisting: true };
     }
 
-    user = await User.create({
-      deviceId,
-      isAnonymous: true,
-      emailVerified: false,
-      isOnboarded: false,
-    });
+    try {
+      user = await User.create({
+        deviceId,
+        isAnonymous: true,
+        emailVerified: false,
+        isOnboarded: false,
+      });
+    } catch (error: any) {
+      // Race condition: concurrent request already created this deviceId.
+      // Recover by fetching the existing user instead of failing.
+      if (error?.code === 11000) {
+        user = await User.findOne({ deviceId, isAnonymous: true, isDeleted: false });
+        if (user) {
+          const tokens = await this.generateTokens(user._id.toString(), deviceId);
+          return { user: this.sanitizeUser(user), tokens, isExisting: true };
+        }
+      }
+      throw error;
+    }
 
     const tokens = await this.generateTokens(user._id.toString(), deviceId);
     return { user: this.sanitizeUser(user), tokens, isExisting: false };
