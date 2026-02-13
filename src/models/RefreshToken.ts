@@ -9,6 +9,8 @@ export interface IRefreshToken extends Document {
   token: string;
   expiresAt: Date;
   revoked: boolean;
+  revokedAt?: Date;
+  replacedByToken?: string;
   createdAt: Date;
 }
 
@@ -30,6 +32,12 @@ const RefreshTokenSchema = new Schema<IRefreshToken>(
     revoked: {
       type: Boolean,
       default: false,
+    },
+    revokedAt: {
+      type: Date,
+    },
+    replacedByToken: {
+      type: String,
     },
   },
   {
