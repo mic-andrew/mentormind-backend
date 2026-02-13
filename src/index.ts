@@ -17,7 +17,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Connect to MongoDB
-connectDatabase();
+connectDatabase().catch((err) => {
+  logger.error('MongoDB connection failed on startup:', err);
+});
 
 // Middleware
 app.use(helmet());
