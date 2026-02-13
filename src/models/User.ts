@@ -29,15 +29,11 @@ const UserSchema = new Schema<IUser>(
   {
     email: {
       type: String,
-      unique: true,
-      sparse: true,
       lowercase: true,
       trim: true,
     },
     deviceId: {
       type: String,
-      unique: true,
-      sparse: true,
     },
     isAnonymous: {
       type: Boolean,
@@ -67,13 +63,9 @@ const UserSchema = new Schema<IUser>(
     },
     googleId: {
       type: String,
-      unique: true,
-      sparse: true,
     },
     appleId: {
       type: String,
-      unique: true,
-      sparse: true,
     },
     personalContext: {
       type: String,
@@ -98,6 +90,30 @@ const UserSchema = new Schema<IUser>(
   {
     timestamps: true,
   }
+);
+
+// Partial filter indexes: only enforce uniqueness when the field is an actual
+// string. Documents where the field is null or missing are excluded entirely.
+// This is required because Mongoose serializes undefined schema fields as null,
+// and sparse indexes still index null values — only truly absent fields are skipped.
+UserSchema.index(
+  { email: 1 },
+  { unique: true, partialFilterExpression: { email: { $type: 'string' } } }
+);
+
+UserSchema.index(
+  { deviceId: 1 },
+  { unique: true, partialFilterExpression: { deviceId: { $type: 'string' } } }
+);
+
+UserSchema.index(
+  { googleId: 1 },
+  { unique: true, partialFilterExpression: { googleId: { $type: 'string' } } }
+);
+
+UserSchema.index(
+  { appleId: 1 },
+  { unique: true, partialFilterExpression: { appleId: { $type: 'string' } } }
 );
 
 export const User = mongoose.model<IUser>('User', UserSchema);

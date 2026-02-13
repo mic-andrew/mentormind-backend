@@ -5,6 +5,7 @@
 
 import mongoose from 'mongoose';
 import { logger } from './logger';
+import { User } from '../models/User';
 
 /**
  * Cached connection promise — shared across warm invocations on Vercel.
@@ -67,6 +68,16 @@ async function attemptConnection(dbUrl: string): Promise<typeof mongoose> {
       });
 
       logger.info(`MongoDB connected successfully (attempt ${attempt})`);
+
+      // Sync indexes: drops stale indexes (e.g. old non-partial unique indexes)
+      // and creates the correct partial filter indexes defined in schemas.
+      // This is idempotent — no-op if indexes already match.
+      try {
+        await User.syncIndexes();
+        logger.info('User indexes synced');
+      } catch (indexErr) {
+        logger.warn('Index sync failed (non-fatal):', indexErr);
+      }
 
       mongoose.connection.on('error', (error) => {
         logger.error('MongoDB connection error:', error);
