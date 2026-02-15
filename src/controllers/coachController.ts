@@ -266,13 +266,11 @@ export class CoachController {
         effectiveUserId
       );
 
-      // Assign avatar to user if available
+      // Fire-and-forget: avatar assignment is non-critical, don't block response
       if (avatarId && userId) {
-        try {
-          await avatarService.assignAvatarToUser(avatarId, userId);
-        } catch (error) {
+        avatarService.assignAvatarToUser(avatarId, userId).catch((error) => {
           logger.warn('[API] create-from-context avatar assignment failed:', error);
-        }
+        });
       }
 
       logger.info(`[API] create-from-context success: coach=${coach.name} id=${coach.id}`);

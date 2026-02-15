@@ -9,9 +9,33 @@ import { sendSuccess, sendError, ErrorCodes } from '../utils/response';
 import { logger } from '../config/logger';
 import type { AuthenticatedRequest } from '../middleware/auth';
 
+const ERROR_MAP: Record<string, { message: string; status: number }> = {
+  UNSUPPORTED_FILE_TYPE: {
+    message: 'Unsupported file type. Use PDF, TXT, MD, or DOCX.',
+    status: 400,
+  },
+  FILE_TOO_LARGE: {
+    message: 'File exceeds the 10MB limit. Choose a smaller file.',
+    status: 400,
+  },
+  INVALID_DOCX: {
+    message: 'This DOCX file appears corrupted or invalid. Try another file.',
+    status: 400,
+  },
+  PDF_PARSE_FAILED: {
+    message:
+      'Could not extract text from this PDF. It may be image-based or corrupted.',
+    status: 422,
+  },
+  EMPTY_EXTRACTION: {
+    message: 'No text could be extracted from this file. Try a different document.',
+    status: 422,
+  },
+};
+
 class UploadController {
   /**
-   * Upload a context document, extract text, and return it.
+   * Upload a context document, extract text, and persist as a Note.
    * POST /api/uploads/document
    */
   async uploadDocument(req: Request, res: Response): Promise<void> {
@@ -20,39 +44,33 @@ class UploadController {
       const file = req.file;
 
       if (!file) {
-        sendError(res, ErrorCodes.VALIDATION_ERROR, 'No file provided', 400);
+        sendError(res, ErrorCodes.VALIDATION_ERROR, 'No file provided.', 400);
         return;
       }
 
-      const result = await uploadService.uploadAndExtract(file, userId);
+      const result = await uploadService.processDocument(file, userId);
 
       sendSuccess(res, {
+        noteId: result.noteId,
         extractedText: result.extractedText,
         originalName: result.originalName,
         mimeType: result.mimeType,
         sizeBytes: result.sizeBytes,
       });
     } catch (error) {
-      if (error instanceof Error) {
-        switch (error.message) {
-          case 'UNSUPPORTED_FILE_TYPE':
-            sendError(
-              res,
-              ErrorCodes.VALIDATION_ERROR,
-              'Unsupported file type. Allowed: PDF, TXT, MD, DOCX',
-              400
-            );
-            return;
-          case 'FILE_TOO_LARGE':
-            sendError(res, ErrorCodes.VALIDATION_ERROR, 'File too large. Maximum 10MB', 400);
-            return;
-          case 'INVALID_DOCX':
-            sendError(res, ErrorCodes.VALIDATION_ERROR, 'Invalid DOCX file', 400);
-            return;
-        }
+      if (error instanceof Error && error.message in ERROR_MAP) {
+        const mapped = ERROR_MAP[error.message];
+        sendError(res, ErrorCodes.VALIDATION_ERROR, mapped.message, mapped.status);
+        return;
       }
-      logger.error('Document upload error:', error);
-      sendError(res, ErrorCodes.INTERNAL_ERROR, 'Failed to process document', 500);
+
+      logger.error('[Upload] Document processing failed:', error);
+      sendError(
+        res,
+        ErrorCodes.INTERNAL_ERROR,
+        'Failed to process your document. Please try again.',
+        500
+      );
     }
   }
 }
