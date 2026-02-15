@@ -223,11 +223,14 @@ class EvaluationService {
       throw new Error('INVALID_SESSION_ID');
     }
 
-    // Verify session exists, belongs to user, and is ended
-    const session = await VoiceSession.findOne({
-      _id: new Types.ObjectId(sessionId),
-      userId: new Types.ObjectId(userId),
-    });
+    const sessionOid = new Types.ObjectId(sessionId);
+    const userOid = new Types.ObjectId(userId);
+
+    // Parallel: verify session + check existing evaluation
+    const [session, existing] = await Promise.all([
+      VoiceSession.findOne({ _id: sessionOid, userId: userOid }),
+      SessionEvaluation.findOne({ sessionId: sessionOid }),
+    ]);
 
     if (!session) {
       throw new Error('SESSION_NOT_FOUND');
@@ -237,17 +240,21 @@ class EvaluationService {
       throw new Error('SESSION_NOT_ENDED');
     }
 
-    // Check for existing evaluation
-    const existing = await SessionEvaluation.findOne({ sessionId: session._id });
     if (existing && existing.status === 'completed') {
       throw new Error('EVALUATION_EXISTS');
     }
 
-    // Fetch transcript, coach, and user in parallel
+    // If already generating (e.g. pre-triggered from endSession), don't double-generate
+    if (existing && existing.status === 'generating') {
+      logger.info(`[Evaluation] Already generating for session ${sessionId}, skipping duplicate`);
+      return this.sanitizeEvaluation(existing);
+    }
+
+    // Parallel: fetch transcript, coach, and user
     const [transcript, coach, user] = await Promise.all([
-      Transcript.findOne({ sessionId: session._id }),
-      Coach.findById(session.coachId),
-      User.findById(userId),
+      Transcript.findOne({ sessionId: session._id }).lean(),
+      Coach.findById(session.coachId).lean(),
+      User.findById(userId).lean(),
     ]);
 
     if (!transcript || transcript.utterances.length === 0) {
@@ -259,7 +266,7 @@ class EvaluationService {
     if (!evaluation) {
       evaluation = await SessionEvaluation.create({
         sessionId: session._id,
-        userId: new Types.ObjectId(userId),
+        userId: userOid,
         coachId: session.coachId,
         status: 'generating',
         modelUsed: process.env.OPENAI_EVALUATION_MODEL || 'gpt-4o-mini',
@@ -298,14 +305,12 @@ class EvaluationService {
       evaluation.generationTimeMs = Date.now() - startTime;
       await evaluation.save();
 
-      // Backfill session summary from evaluation
-      try {
-        await VoiceSession.findByIdAndUpdate(session._id, {
-          summary: content.overallSummary,
-        });
-      } catch (backfillError) {
-        logger.warn(`Failed to backfill session summary for ${sessionId}:`, backfillError);
-      }
+      // Fire-and-forget: backfill session summary from evaluation
+      VoiceSession.findByIdAndUpdate(session._id, {
+        summary: content.overallSummary,
+      }).catch((err) => {
+        logger.warn(`Failed to backfill session summary for ${sessionId}:`, err);
+      });
 
       logger.info(
         `Evaluation generated for session ${sessionId} in ${evaluation.generationTimeMs}ms`
@@ -325,24 +330,26 @@ class EvaluationService {
   }
 
   /**
-   * Get evaluation for a session
+   * Get evaluation for a session (returns any status including 'generating')
    */
   async getEvaluation(sessionId: string, userId: string) {
     if (!Types.ObjectId.isValid(sessionId)) {
       throw new Error('INVALID_SESSION_ID');
     }
 
-    // Verify session belongs to user
-    const session = await VoiceSession.findOne({
-      _id: new Types.ObjectId(sessionId),
-      userId: new Types.ObjectId(userId),
-    });
+    const sessionOid = new Types.ObjectId(sessionId);
+    const userOid = new Types.ObjectId(userId);
+
+    // Parallel: verify session + fetch evaluation
+    const [session, evaluation] = await Promise.all([
+      VoiceSession.findOne({ _id: sessionOid, userId: userOid }).lean(),
+      SessionEvaluation.findOne({ sessionId: sessionOid }),
+    ]);
 
     if (!session) {
       throw new Error('SESSION_NOT_FOUND');
     }
 
-    const evaluation = await SessionEvaluation.findOne({ sessionId: session._id });
     if (!evaluation) {
       throw new Error('EVALUATION_NOT_FOUND');
     }

@@ -11,6 +11,7 @@ import { User, IUser } from '../models/User';
 import { Avatar } from '../models/Avatar';
 import { logger } from '../config/logger';
 import { subscriptionService } from './subscriptionService';
+import { evaluationService } from './evaluationService';
 import { buildSessionInstructions } from '../prompts/sessionInstructions';
 import {
   CONTEXT_EXTRACTION_SYSTEM_MESSAGE,
@@ -189,6 +190,17 @@ class SessionService {
 
     logger.info(`[SessionHistory] Found ${pastSessions.length} past sessions`);
 
+    // Batch-fetch transcripts for sessions without summaries (single $in query)
+    const sessionsWithoutSummary = pastSessions.filter((s) => !s.summary);
+    const transcriptDocs = sessionsWithoutSummary.length > 0
+      ? await Transcript.find({
+          sessionId: { $in: sessionsWithoutSummary.map((s) => s._id) },
+        }).lean()
+      : [];
+    const transcriptMap = new Map(
+      transcriptDocs.map((t) => [t.sessionId.toString(), t])
+    );
+
     let history = '# Past Session History\n';
 
     for (const session of pastSessions) {
@@ -205,8 +217,7 @@ class SessionService {
       if (session.summary) {
         history += `${session.summary}\n`;
       } else {
-        // Fallback: grab first 3 user utterances from transcript
-        const transcript = await Transcript.findOne({ sessionId: session._id });
+        const transcript = transcriptMap.get(session._id.toString());
         if (transcript) {
           const userUtterances = transcript.utterances
             .filter((u) => u.speakerId === 'user')
@@ -254,7 +265,7 @@ class SessionService {
         type: 'server_vad',
         threshold: 0.5,
         prefix_padding_ms: 300,
-        silence_duration_ms: 2500,
+        silence_duration_ms: 1800,
       },
     });
 
@@ -331,8 +342,15 @@ class SessionService {
       throw new Error('INVALID_COACH_ID');
     }
 
-    // Get coach with system prompt
-    const coach = await Coach.findById(coachId);
+    const userOid = new Types.ObjectId(userId);
+    const coachOid = new Types.ObjectId(coachId);
+
+    // Phase 1: Parallel initial lookups (lean — read-only, no .save() needed)
+    const [coach, user] = await Promise.all([
+      Coach.findById(coachOid).lean() as Promise<ICoach | null>,
+      User.findById(userId).lean() as Promise<IUser | null>,
+    ]);
+
     if (!coach) {
       logger.warn(`[StartSession] Coach not found: ${coachId}`);
       throw new Error('COACH_NOT_FOUND');
@@ -340,83 +358,76 @@ class SessionService {
 
     logger.info(`[StartSession] Coach: ${coach.name} (tone=${coach.tone}, lang=${coach.language})`);
 
-    // Check if coach is accessible (system coaches are always accessible)
     if (coach.createdBy !== 'system' && !coach.isPublished) {
-      // For user-created coaches, check if user has access
       const isOwner = coach.createdBy.toString() === userId;
       if (!isOwner) {
         throw new Error('COACH_NOT_FOUND');
       }
     }
 
-    // Get user for context
-    const user = await User.findById(userId);
     if (!user) {
       throw new Error('USER_NOT_FOUND');
     }
 
-    // Check free tier session limit
-    // Skip for system coaches (interviewer) and onboarding sessions (user must complete trial)
+    // Phase 2: Parallel — subscription check, abandon old sessions, session history, voice resolution
     const isOnboardingSession = data.type === 'onboarding';
-    if (coach.createdBy !== 'system' && !isOnboardingSession) {
-      const canStart = await subscriptionService.canStartSession(userId);
-      if (!canStart) {
-        throw new Error('SESSION_LIMIT_EXCEEDED');
-      }
+    const skipSubCheck = coach.createdBy === 'system' || isOnboardingSession;
+
+    const [canStart, , sessionHistory, voice] = await Promise.all([
+      skipSubCheck ? Promise.resolve(true) : subscriptionService.canStartSession(userId),
+      VoiceSession.updateMany(
+        { userId: userOid, status: 'active' },
+        { status: 'abandoned', endedAt: new Date() }
+      ),
+      this.buildSessionHistoryContext(userId, coachId),
+      this.resolveVoice(coach),
+    ]);
+
+    if (!canStart) {
+      throw new Error('SESSION_LIMIT_EXCEEDED');
     }
 
-    // Check for existing active session and mark as abandoned
-    await VoiceSession.updateMany(
-      { userId: new Types.ObjectId(userId), status: 'active' },
-      { status: 'abandoned', endedAt: new Date() }
-    );
-
-    // Build session history for multi-session awareness
-    const sessionHistory = await this.buildSessionHistoryContext(userId, coachId);
-
-    // Build instructions with history context
+    // Phase 3: Build instructions (needs coach + user + history) then get OpenAI token
     const instructions = this.buildInstructions(coach, user, sessionHistory);
-    const voice = await this.resolveVoice(coach);
     const langCode = languageToCode(user.language);
-
-    // Get ephemeral token from OpenAI
     const openaiSession = await this.getOpenAIEphemeralToken(instructions, voice, langCode);
 
-    // Build speakers array with real names
+    // Phase 4: Parallel — create session + transcript documents
+    // Pre-generate session ID so both documents can reference each other immediately
+    const newSessionId = new Types.ObjectId();
     const speakers: ITranscriptSpeaker[] = [
       { id: 'user', name: user.firstName || 'User', role: 'user' },
       { id: 'coach', name: coach.name, role: 'coach' },
     ];
 
-    // Create session record
-    const session = await VoiceSession.create({
-      userId: new Types.ObjectId(userId),
-      coachId: new Types.ObjectId(coachId),
-      type: data.type || 'regular',
-      status: 'active',
-      openaiSessionId: openaiSession.id,
-      startedAt: new Date(),
-    });
+    const [session, transcript] = await Promise.all([
+      VoiceSession.create({
+        _id: newSessionId,
+        userId: userOid,
+        coachId: coachOid,
+        type: data.type || 'regular',
+        status: 'active',
+        openaiSessionId: openaiSession.id,
+        startedAt: new Date(),
+      }),
+      Transcript.create({
+        sessionId: newSessionId,
+        userId: userOid,
+        coachId: coachOid,
+        speakers,
+        utterances: [],
+        metadata: { totalUtterances: 0, language: langCode },
+      }),
+    ]);
 
-    // Create transcript document for this session
-    const transcript = await Transcript.create({
-      sessionId: session._id,
-      userId: new Types.ObjectId(userId),
-      coachId: new Types.ObjectId(coachId),
-      speakers,
-      utterances: [],
-      metadata: { totalUtterances: 0, language: languageToCode(user.language) },
-    });
-
-    // Link transcript to session
-    session.transcriptId = transcript._id;
-    await session.save();
-
-    // Increment coach session count
-    await Coach.findByIdAndUpdate(coachId, {
-      $inc: { sessionsCount: 1 },
-      lastUsedAt: new Date(),
-    });
+    // Fire-and-forget: link transcript to session + increment coach count
+    Promise.all([
+      VoiceSession.updateOne({ _id: newSessionId }, { transcriptId: transcript._id }),
+      Coach.findByIdAndUpdate(coachId, {
+        $inc: { sessionsCount: 1 },
+        lastUsedAt: new Date(),
+      }),
+    ]).catch((err) => logger.warn('[StartSession] Non-critical post-setup failed:', err));
 
     logger.info(`Voice session started: ${session._id} by user ${userId} with coach ${coachId}`);
 
@@ -479,27 +490,28 @@ class SessionService {
       throw new Error('SESSION_NOT_FOUND');
     }
 
-    // Get coach for instructions
-    const coach = await Coach.findById(session.coachId);
+    // Parallel: fetch coach + user (lean — read-only)
+    const [coach, user] = await Promise.all([
+      Coach.findById(session.coachId).lean() as Promise<ICoach | null>,
+      User.findById(userId).lean() as Promise<IUser | null>,
+    ]);
+
     if (!coach) {
       throw new Error('COACH_NOT_FOUND');
     }
 
-    // Get user for context
-    const user = await User.findById(userId);
     if (!user) {
       throw new Error('USER_NOT_FOUND');
     }
 
-    // Build session history for multi-session awareness
-    const sessionHistory = await this.buildSessionHistoryContext(
-      userId,
-      session.coachId.toString()
-    );
+    // Parallel: session history + voice resolution
+    const [sessionHistory, voice] = await Promise.all([
+      this.buildSessionHistoryContext(userId, session.coachId.toString()),
+      this.resolveVoice(coach),
+    ]);
 
-    // Build instructions with history context and get new token
+    // Build instructions and get new token
     const instructions = this.buildInstructions(coach, user, sessionHistory);
-    const voice = await this.resolveVoice(coach);
     const langCode = languageToCode(user.language);
     const openaiSession = await this.getOpenAIEphemeralToken(instructions, voice, langCode);
 
@@ -634,13 +646,17 @@ class SessionService {
     session.durationMs = data.durationMs;
     await session.save();
 
+    // Parallel: fetch coach (for title + sanitization) and transcript (for title generation)
+    const [coach, titleTranscript] = await Promise.all([
+      Coach.findById(session.coachId),
+      !session.title ? Transcript.findOne({ sessionId: session._id }).lean() : Promise.resolve(null),
+    ]);
+
     // Generate title from coach name + first user utterance
     if (!session.title) {
-      const coach = await Coach.findById(session.coachId);
       const coachName = coach?.name || 'Coach';
-      const transcript = await Transcript.findOne({ sessionId: session._id });
-      if (transcript) {
-        const firstUserUtterance = transcript.utterances.find((u) => u.speakerId === 'user');
+      if (titleTranscript) {
+        const firstUserUtterance = titleTranscript.utterances.find((u) => u.speakerId === 'user');
         if (firstUserUtterance) {
           const topic = firstUserUtterance.content.substring(0, 40) +
             (firstUserUtterance.content.length > 40 ? '...' : '');
@@ -664,7 +680,14 @@ class SessionService {
       `Voice session ended: ${sessionId} by user ${userId}, duration: ${data.durationMs}ms`
     );
 
-    const coach = await Coach.findById(session.coachId);
+    // Fire-and-forget: pre-trigger evaluation generation so it's ready
+    // by the time the user navigates to the evaluation screen
+    if (session.type !== 'onboarding') {
+      evaluationService.generateEvaluation(sessionId, userId).catch((err) => {
+        logger.warn(`[EndSession] Background evaluation failed: ${err.message}`);
+      });
+    }
+
     return this.sanitizeSession(session, coach || undefined);
   }
 
@@ -705,19 +728,19 @@ class SessionService {
     const session = await VoiceSession.findOne({
       _id: new Types.ObjectId(sessionId),
       userId: new Types.ObjectId(userId),
-    });
+    }).lean();
 
     if (!session) {
       throw new Error('SESSION_NOT_FOUND');
     }
 
     const [coach, transcript] = await Promise.all([
-      Coach.findById(session.coachId),
-      Transcript.findOne({ sessionId: session._id }),
+      Coach.findById(session.coachId).lean(),
+      Transcript.findOne({ sessionId: session._id }).lean(),
     ]);
 
     return {
-      ...this.sanitizeSession(session, coach || undefined),
+      ...this.sanitizeSession(session as unknown as IVoiceSession, coach as unknown as ICoach | undefined),
       transcript: transcript
         ? {
             speakers: transcript.speakers,
@@ -727,13 +750,15 @@ class SessionService {
               content: u.content,
               startOffsetMs: u.startOffsetMs,
               endOffsetMs: u.endOffsetMs,
-              timestamp: u.timestamp.toISOString(),
+              timestamp: new Date(u.timestamp).toISOString(),
               ...(u.confidence !== undefined && { confidence: u.confidence }),
             })),
             metadata: {
               totalUtterances: transcript.metadata.totalUtterances,
               language: transcript.metadata.language,
-              lastSyncedAt: transcript.metadata.lastSyncedAt?.toISOString(),
+              lastSyncedAt: transcript.metadata.lastSyncedAt
+                ? new Date(transcript.metadata.lastSyncedAt).toISOString()
+                : undefined,
             },
           }
         : null,
@@ -770,19 +795,19 @@ class SessionService {
     }
 
     const [sessions, total] = await Promise.all([
-      VoiceSession.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      VoiceSession.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       VoiceSession.countDocuments(query),
     ]);
 
     // Get coaches for all sessions
     const coachIds = [...new Set(sessions.map((s) => s.coachId.toString()))];
-    const coaches = await Coach.find({ _id: { $in: coachIds } });
+    const coaches = await Coach.find({ _id: { $in: coachIds } }).lean();
     const coachMap = new Map(coaches.map((c) => [c._id.toString(), c]));
 
     return {
       data: sessions.map((session) => {
         const coach = coachMap.get(session.coachId.toString());
-        return this.sanitizeSession(session, coach);
+        return this.sanitizeSession(session as unknown as IVoiceSession, coach as unknown as ICoach | undefined);
       }),
       total,
       page,
@@ -802,14 +827,14 @@ class SessionService {
     const session = await VoiceSession.findOne({
       userId: new Types.ObjectId(userId),
       status: { $in: ['active', 'paused'] },
-    }).sort({ createdAt: -1 });
+    }).sort({ createdAt: -1 }).lean();
 
     if (!session) {
       return null;
     }
 
-    const coach = await Coach.findById(session.coachId);
-    return this.sanitizeSession(session, coach || undefined);
+    const coach = await Coach.findById(session.coachId).lean();
+    return this.sanitizeSession(session as unknown as IVoiceSession, coach as unknown as ICoach | undefined);
   }
 
   /**
@@ -862,7 +887,7 @@ class SessionService {
       throw new Error('INVALID_USER_ID');
     }
 
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).lean();
     if (!user) {
       throw new Error('USER_NOT_FOUND');
     }
@@ -882,18 +907,20 @@ class SessionService {
       throw new Error('INVALID_SESSION_ID');
     }
 
-    const session = await VoiceSession.findOne({
-      _id: new Types.ObjectId(sessionId),
-      userId: new Types.ObjectId(userId),
-    });
+    const sessionOid = new Types.ObjectId(sessionId);
+    const userOid = new Types.ObjectId(userId);
+
+    // Parallel: fetch session + transcript
+    const [session, transcript] = await Promise.all([
+      VoiceSession.findOne({ _id: sessionOid, userId: userOid }).lean(),
+      Transcript.findOne({ sessionId: sessionOid }).lean(),
+    ]);
 
     if (!session) {
       logger.warn(`[ExtractContext] Session not found: ${sessionId}`);
       throw new Error('SESSION_NOT_FOUND');
     }
 
-    // Fetch transcript
-    const transcript = await Transcript.findOne({ sessionId: session._id });
     if (!transcript || transcript.utterances.length === 0) {
       logger.warn(`[ExtractContext] No transcript data for session=${sessionId}, utterances=${transcript?.utterances.length ?? 0}`);
       throw new Error('TRANSCRIPT_EMPTY');

@@ -1,13 +1,12 @@
 /**
  * Upload Service
- * Handles S3 document uploads and text extraction for context documents.
+ * Handles document text extraction and Note persistence.
+ * No S3 dependency — extraction is done locally from the file buffer.
  */
 
-import * as crypto from 'crypto';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import pdf from 'pdf-parse';
 import AdmZip from 'adm-zip';
-import { env } from '../config/env';
+import { Note } from '../models/Note';
 import { logger } from '../config/logger';
 
 const ALLOWED_MIME_TYPES = [
@@ -18,9 +17,10 @@ const ALLOWED_MIME_TYPES = [
 ];
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_EXTRACTED_CHARS = 50_000;
 
-interface UploadResult {
-  s3Key: string;
+interface ProcessResult {
+  noteId: string;
   extractedText: string;
   originalName: string;
   mimeType: string;
@@ -28,64 +28,40 @@ interface UploadResult {
 }
 
 class UploadService {
-  private s3: S3Client;
-
-  constructor() {
-    this.s3 = new S3Client({
-      region: env.aws.s3Region,
-      credentials: {
-        accessKeyId: env.aws.accessKeyId,
-        secretAccessKey: env.aws.secretAccessKey,
-      },
-    });
-  }
-
   /**
-   * Upload a document to S3 and extract its text content.
+   * Extract text from the uploaded document and persist as a Note.
    */
-  async uploadAndExtract(
+  async processDocument(
     file: Express.Multer.File,
     userId: string
-  ): Promise<UploadResult> {
-    // Validate file type
-    if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-      throw new Error('UNSUPPORTED_FILE_TYPE');
-    }
+  ): Promise<ProcessResult> {
+    this.validateFile(file);
 
-    // Validate file size
-    if (file.size > MAX_FILE_SIZE) {
-      throw new Error('FILE_TOO_LARGE');
-    }
-
-    // Generate unique S3 key
-    const uuid = crypto.randomUUID();
-    const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const s3Key = `documents/${userId}/${uuid}-${sanitizedName}`;
-
-    // Upload to S3
-    await this.s3.send(
-      new PutObjectCommand({
-        Bucket: env.aws.s3Bucket,
-        Key: s3Key,
-        Body: file.buffer,
-        ContentType: file.mimetype,
-        Metadata: {
-          userId,
-          originalName: file.originalname,
-        },
-      })
-    );
-
-    logger.info(`[Upload] File uploaded to S3: ${s3Key} (${file.size} bytes)`);
-
-    // Extract text
     const extractedText = await this.extractText(file.buffer, file.mimetype);
 
-    logger.info(`[Upload] Text extracted: ${extractedText.length} chars from ${file.originalname}`);
+    if (!extractedText || extractedText.trim().length === 0) {
+      throw new Error('EMPTY_EXTRACTION');
+    }
+
+    const trimmedText = extractedText.slice(0, MAX_EXTRACTED_CHARS);
+    const title = this.titleFromFileName(file.originalname);
+
+    const note = await Note.create({
+      userId,
+      title,
+      content: trimmedText,
+      sourceFileName: file.originalname,
+      mimeType: file.mimetype,
+      sizeBytes: file.size,
+    });
+
+    logger.info(
+      `[Upload] Text extracted: ${trimmedText.length} chars from "${file.originalname}" → Note ${note._id}`
+    );
 
     return {
-      s3Key,
-      extractedText,
+      noteId: note._id.toString(),
+      extractedText: trimmedText,
       originalName: file.originalname,
       mimeType: file.mimetype,
       sizeBytes: file.size,
@@ -93,9 +69,24 @@ class UploadService {
   }
 
   /**
+   * Validate file type and size. Throws coded errors for the controller to map.
+   */
+  private validateFile(file: Express.Multer.File): void {
+    if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+      throw new Error('UNSUPPORTED_FILE_TYPE');
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      throw new Error('FILE_TOO_LARGE');
+    }
+  }
+
+  /**
    * Extract text content from a file buffer based on MIME type.
    */
-  private async extractText(buffer: Buffer, mimeType: string): Promise<string> {
+  private async extractText(
+    buffer: Buffer,
+    mimeType: string
+  ): Promise<string> {
     switch (mimeType) {
       case 'application/pdf':
         return this.extractFromPdf(buffer);
@@ -116,35 +107,56 @@ class UploadService {
    * Extract text from a PDF buffer using pdf-parse.
    */
   private async extractFromPdf(buffer: Buffer): Promise<string> {
-    const data = await pdf(buffer);
-    return data.text.trim();
+    try {
+      const data = await pdf(buffer);
+      return data.text.trim();
+    } catch (error) {
+      logger.error('[Upload] PDF parse failed:', error);
+      throw new Error('PDF_PARSE_FAILED');
+    }
   }
 
   /**
    * Extract text from a DOCX buffer by parsing the XML content.
-   * Lightweight approach — parses document.xml directly without heavy dependencies.
    */
-  private async extractFromDocx(buffer: Buffer): Promise<string> {
-    const zip = new AdmZip(buffer);
-    const entry = zip.getEntry('word/document.xml');
+  private extractFromDocx(buffer: Buffer): string {
+    try {
+      const zip = new AdmZip(buffer);
+      const entry = zip.getEntry('word/document.xml');
 
-    if (!entry) {
+      if (!entry) {
+        throw new Error('INVALID_DOCX');
+      }
+
+      const xml = entry.getData().toString('utf-8');
+      const textMatches = xml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g);
+      if (!textMatches) return '';
+
+      return textMatches
+        .map((match) => match.replace(/<[^>]+>/g, ''))
+        .join('')
+        .replace(/\s+/g, ' ')
+        .trim();
+    } catch (error) {
+      if (error instanceof Error && error.message === 'INVALID_DOCX') {
+        throw error;
+      }
+      logger.error('[Upload] DOCX parse failed:', error);
       throw new Error('INVALID_DOCX');
     }
+  }
 
-    const xml = entry.getData().toString('utf-8');
-    // Extract text between <w:t> tags
-    const textMatches = xml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g);
-    if (!textMatches) return '';
-
-    return textMatches
-      .map((match) => {
-        const content = match.replace(/<[^>]+>/g, '');
-        return content;
-      })
-      .join('')
+  /**
+   * Derive a human-readable title from the filename.
+   * "my_resume_2024.pdf" → "my resume 2024"
+   */
+  private titleFromFileName(fileName: string): string {
+    const withoutExt = fileName.replace(/\.[^.]+$/, '');
+    return withoutExt
+      .replace(/[_-]+/g, ' ')
       .replace(/\s+/g, ' ')
-      .trim();
+      .trim()
+      .slice(0, 200);
   }
 }
 
