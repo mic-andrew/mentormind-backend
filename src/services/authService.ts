@@ -781,7 +781,14 @@ class AuthService {
       // Find or create user
       let user = await User.findOne({ appleId });
 
-      if (!user) {
+      if (user) {
+        // Backfill name if missing (Apple only provides it on first sign-in)
+        if (fullName && (!user.firstName || !user.lastName)) {
+          if (!user.firstName && fullName.firstName) user.firstName = fullName.firstName;
+          if (!user.lastName && fullName.lastName) user.lastName = fullName.lastName;
+          await user.save();
+        }
+      } else {
         // Check if we should upgrade an anonymous user
         if (anonymousUserId) {
           const anonUser = await User.findById(anonymousUserId);
@@ -801,17 +808,17 @@ class AuthService {
           user = await User.findOne({ email: email?.toLowerCase() });
 
           if (user) {
-            // Link Apple account to existing user
             user.appleId = appleId;
+            if (fullName?.firstName && !user.firstName) user.firstName = fullName.firstName;
+            if (fullName?.lastName && !user.lastName) user.lastName = fullName.lastName;
             await user.save();
           } else {
-            // Create new user (Apple only provides name on first sign in)
             user = await User.create({
               email: email?.toLowerCase(),
               appleId,
               firstName: fullName?.firstName || '',
               lastName: fullName?.lastName || '',
-              emailVerified: true, // Apple verifies emails
+              emailVerified: true,
             });
           }
         }
