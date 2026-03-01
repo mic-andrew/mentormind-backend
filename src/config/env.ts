@@ -31,6 +31,9 @@ export const env = {
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET!,
   googleCallbackUrl: process.env.GOOGLE_CALLBACK_URL,
 
+  // Apple Sign In
+  appleClientId: process.env.APPLE_CLIENT_ID!,
+
   // URLs
   frontendUrl: process.env.FRONTEND_URL,
 

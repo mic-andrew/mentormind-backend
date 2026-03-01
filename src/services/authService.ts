@@ -771,7 +771,7 @@ class AuthService {
     try {
       // Verify Apple token
       const appleData = await appleSignin.verifyIdToken(token, {
-        audience: env.googleClientId, // Replace with Apple client ID when configured
+        audience: env.appleClientId,
         ignoreExpiration: false,
       });
 
